@@ -59,19 +59,54 @@ public class DLedgerServer implements DLedgerProtocolHander {
 
     public DLedgerServer(DLedgerConfig dLedgerConfig) {
         this.dLedgerConfig = dLedgerConfig;
+
+        /**
+         * 初始化MemberState
+         */
         this.memberState = new MemberState(dLedgerConfig);
+
+        /**
+         * 数据存储   内存或硬盘
+         */
         this.dLedgerStore = createDLedgerStore(dLedgerConfig.getStoreType(), this.dLedgerConfig, this.memberState);
+
+        /**
+         * netty初始化
+         */
         dLedgerRpcService = new DLedgerRpcNettyService(this);
+
+        /**
+         *
+         */
         dLedgerEntryPusher = new DLedgerEntryPusher(dLedgerConfig, memberState, dLedgerStore, dLedgerRpcService);
+
+        /**
+         * 选举leader
+         */
         dLedgerLeaderElector = new DLedgerLeaderElector(dLedgerConfig, memberState, dLedgerRpcService);
     }
 
 
 
     public void startup() {
+        /**
+         * 文件系统
+         */
         this.dLedgerStore.startup();
+
+        /**
+         * netty启动
+         */
         this.dLedgerRpcService.startup();
+
+        /**
+         *
+         */
         this.dLedgerEntryPusher.startup();
+
+        /**
+         * 选举
+         */
         this.dLedgerLeaderElector.startup();
     }
 
@@ -82,10 +117,19 @@ public class DLedgerServer implements DLedgerProtocolHander {
         this.dLedgerStore.shutdown();
     }
 
+    /**
+     * 数据存储
+     * @param storeType
+     * @param config
+     * @param memberState
+     * @return
+     */
     private DLedgerStore createDLedgerStore(String storeType, DLedgerConfig config, MemberState memberState) {
         if (storeType.equals(DLedgerConfig.MEMORY)) {
+            //内存
             return new DLedgerMemoryStore(config, memberState);
         } else {
+            //文件
             return new DLedgerMmapFileStore(config, memberState);
         }
     }
@@ -111,11 +155,28 @@ public class DLedgerServer implements DLedgerProtocolHander {
         }
     }
 
+    /**
+     * 接受其他节点的选举
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<VoteResponse> handleVote(VoteRequest request) throws Exception {
         try {
+            /**
+             * 该请求是发送给当前节点的  SelfId==RemoteId
+             */
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
+
+            /**
+             * 在同一个集群内部
+             */
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
+
+            /**
+             * 接受其他节点的选举  注意self为false
+             */
             return dLedgerLeaderElector.handleVote(request, false);
         } catch (DLedgerException e) {
             logger.error("[{}][HandleVote] failed", memberState.getSelfId(), e);

@@ -70,7 +70,13 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     public DLedgerMmapFileStore(DLedgerConfig dLedgerConfig, MemberState memberState) {
         this.dLedgerConfig = dLedgerConfig;
         this.memberState = memberState;
+        /**
+         * 数据文件  1024 * 1024 * 1024
+         */
         this.dataFileList = new MmapFileList(dLedgerConfig.getDataStorePath(), dLedgerConfig.getMappedFileSizeForEntryData());
+        /**
+         * index文件    32 * 5 * 1024 * 1024
+         */
         this.indexFileList = new MmapFileList(dLedgerConfig.getIndexStorePath(), dLedgerConfig.getMappedFileSizeForEntryIndex());
         localEntryBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(4 * 1024 * 1024));
         localIndexBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(INDEX_UNIT_SIZE * 2));
@@ -79,9 +85,24 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     }
 
     public void startup() {
+        /**
+         * 加载data和index文件
+         */
         load();
+
+        /**
+         * 恢复
+         */
         recover();
+
+        /**
+         * 刷盘
+         */
         flushDataService.start();
+
+        /**
+         * 删除过期文件？？
+         */
         cleanSpaceService.start();
     }
 
@@ -110,6 +131,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         if (!hasLoaded.compareAndSet(false, true)) {
             return;
         }
+
+        /**
+         * 加载data和index
+         */
         if (!this.dataFileList.load() || !this.indexFileList.load()) {
             logger.error("Load file failed, this usually indicates fatal error, you should check it manually");
             System.exit(-1);

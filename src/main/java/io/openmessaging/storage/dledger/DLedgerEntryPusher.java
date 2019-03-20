@@ -68,6 +68,10 @@ public class DLedgerEntryPusher {
         this.memberState = memberState;
         this.dLedgerStore = dLedgerStore;
         this.dLedgerRpcService = dLedgerRpcService;
+
+        /**
+         * 遍历memberState.getPeerMap()  将非SelfId的peer注入到dispatcherMap
+         */
         for (String peer : memberState.getPeerMap().keySet()) {
             if (!peer.equals(memberState.getSelfId())) {
                 dispatcherMap.put(peer, new EntryDispatcher(peer, logger));
@@ -188,6 +192,10 @@ public class DLedgerEntryPusher {
                     waitForRunning(1);
                     return;
                 }
+
+                /**
+                 * 仅Leader时执行
+                 */
                 long currTerm = memberState.currTerm();
                 checkTermForPendingMap(currTerm, "QuorumAckChecker");
                 checkTermForWaterMark(currTerm, "QuorumAckChecker");
@@ -789,10 +797,17 @@ public class DLedgerEntryPusher {
         @Override
         public void doWork() {
             try {
+                /**
+                 * 非FOLLOWER角色
+                 */
                 if (!memberState.isFollower()) {
                     waitForRunning(1);
                     return;
                 }
+
+                /**
+                 * 仅FOLLOWER执行
+                 */
                 if (compareOrTruncateRequests.peek() != null) {
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair = compareOrTruncateRequests.poll();
                     PreConditions.check(pair != null, DLedgerResponseCode.UNKNOWN);

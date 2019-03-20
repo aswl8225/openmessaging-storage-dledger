@@ -89,6 +89,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
             }
         };
         //start the remoting server
+        /**
+         * 服务端
+         */
         NettyServerConfig nettyServerConfig = new NettyServerConfig();
         nettyServerConfig.setListenPort(Integer.valueOf(memberState.getSelfAddr().split(":")[1]));
         this.remotingServer = new NettyRemotingServer(nettyServerConfig, null);
@@ -101,10 +104,18 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         this.remotingServer.registerProcessor(DLedgerRequestCode.HEART_BEAT.getCode(), protocolProcessor, null);
 
         //start the remoting client
+        /**
+         * 客户端
+         */
         this.remotingClient = new NettyRemotingClient(new NettyClientConfig(), null);
 
     }
 
+    /**
+     * 获取RemoteId对应的地址
+     * @param request
+     * @return
+     */
     private String getPeerAddr(RequestOrResponse request) {
         //support different groups in the near future
         return memberState.getPeerAddr(request.getRemoteId());
@@ -126,11 +137,21 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return future;
     }
 
+    /**
+     * 向集群内其他节点发起选举
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<VoteResponse> vote(VoteRequest request) throws Exception {
         CompletableFuture<VoteResponse> future = new CompletableFuture<>();
         try {
             RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.VOTE.getCode(), null);
             wrapperRequest.setBody(JSON.toJSONBytes(request));
+
+            /**
+             * 异步发送选举请求
+             */
             remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
                 VoteResponse response = JSON.parseObject(responseFuture.getResponseCommand().getBody(), VoteResponse.class);
                 future.complete(response);
@@ -276,6 +297,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 }, futureExecutor);
                 break;
             }
+            /**
+             * 接受其他节点的选举
+             */
             case VOTE: {
                 VoteRequest voteRequest = JSON.parseObject(request.getBody(), VoteRequest.class);
                 CompletableFuture<VoteResponse> future = handleVote(voteRequest);
@@ -304,6 +328,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return dLedgerServer.handleHeartBeat(request);
     }
 
+    /**
+     * 接受其他节点的选举
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<VoteResponse> handleVote(VoteRequest request) throws Exception {
         VoteResponse response = dLedgerServer.handleVote(request).get();

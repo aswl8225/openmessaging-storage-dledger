@@ -66,14 +66,27 @@ public class DLedgerLeaderElector {
 
     private StateMaintainer stateMaintainer = new StateMaintainer("StateMaintainer", logger);
 
+    /**
+     * 选举leader
+     * @param dLedgerConfig
+     * @param memberState
+     * @param dLedgerRpcService
+     */
     public DLedgerLeaderElector(DLedgerConfig dLedgerConfig, MemberState memberState, DLedgerRpcService dLedgerRpcService) {
         this.dLedgerConfig = dLedgerConfig;
         this.memberState = memberState;
         this.dLedgerRpcService = dLedgerRpcService;
+
+        /**
+         * 设置时间间隔
+         */
         refreshIntervals(dLedgerConfig);
     }
 
     public void startup() {
+        /**
+         * 根据自身角色
+         */
         stateMaintainer.start();
         for (RoleChangeHandler roleChangeHandler : roleChangeHandlers) {
             roleChangeHandler.startup();
@@ -87,10 +100,18 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 设置时间间隔
+     * @param dLedgerConfig
+     */
     private void refreshIntervals(DLedgerConfig dLedgerConfig) {
+        //2000
         this.heartBeatTimeIntervalMs = dLedgerConfig.getHeartBeatTimeIntervalMs();
+        //3
         this.maxHeartBeatLeak = dLedgerConfig.getMaxHeartBeatLeak();
+        //300ms
         this.minVoteIntervalMs = dLedgerConfig.getMinVoteIntervalMs();
+        //1000ms
         this.maxVoteIntervalMs = dLedgerConfig.getMaxVoteIntervalMs();
     }
 
@@ -156,10 +177,24 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 修改节点角色为Candidate
+     * @param term
+     */
     public void changeRoleToCandidate(long term) {
         synchronized (memberState) {
+            /**
+             * 选期大于当前选期
+             */
             if (term >= memberState.currTerm()) {
+                /**
+                 * 修改节点角色为Candidate
+                 */
                 memberState.changeToCandidate(term);
+
+                /**
+                 * 通过 RoleChangeHandler 把角色变更透传给 RocketMQ 的Broker，从而达到主备自动切换的目标
+                 */
                 handleRoleChange(term, MemberState.Role.CANDIDATE);
                 logger.info("[{}] [ChangeRoleToCandidate] from term: {} and currTerm: {}", memberState.getSelfId(), term, memberState.currTerm());
             } else {
@@ -182,25 +217,55 @@ public class DLedgerLeaderElector {
         handleRoleChange(term, MemberState.Role.FOLLOWER);
     }
 
+    /**
+     * 选举
+     * @param request
+     * @param self
+     * @return
+     */
     public CompletableFuture<VoteResponse> handleVote(VoteRequest request, boolean self) {
         //hold the lock to get the latest term, leaderId, ledgerEndIndex
         synchronized (memberState) {
+            /**
+             * 请求的LeaderId与节点属于一个集群
+             */
             if (!memberState.isPeerMember(request.getLeaderId())) {
                 logger.warn("[BUG] [HandleVote] remoteId={} is an unknown member", request.getLeaderId());
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_UNKNOWN_LEADER));
             }
+
+            /**
+             * 是否选举自己本身
+             */
             if (!self && memberState.getSelfId().equals(request.getLeaderId())) {
                 logger.warn("[BUG] [HandleVote] selfId={} but remoteId={}", memberState.getSelfId(), request.getLeaderId());
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_UNEXPECTED_LEADER));
             }
+
+            /**
+             * 请求中的选期小于当前的选期
+             */
             if (request.getTerm() < memberState.currTerm()) {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_EXPIRED_VOTE_TERM));
             } else if (request.getTerm() == memberState.currTerm()) {
+                /**
+                 * 请求中的选期等于当前的选期
+                 */
                 if (memberState.currVoteFor() == null) {
                     //let it go
+                    /**
+                     * 节点目前没有选举leader
+                     */
                 } else if (memberState.currVoteFor().equals(request.getLeaderId())) {
                     //repeat just let it go
+                    /**
+                     * 节点选取的leader就是请求中的LeaderId
+                     */
                 } else {
+                    /**
+                     * 节点选取的leader不是请求中的LeaderId
+                     */
+
                     if (memberState.getLeaderId() != null) {
                         return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_ALREADY__HAS_LEADER));
                     } else {
@@ -208,6 +273,9 @@ public class DLedgerLeaderElector {
                     }
                 }
             } else {
+                /**
+                 * 请求中的选期大于当前的选期  修改节点角色为Candidate
+                 */
                 //stepped down by larger term
                 changeRoleToCandidate(request.getTerm());
                 needIncreaseTermImmediately = true;
@@ -226,6 +294,9 @@ public class DLedgerLeaderElector {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.getLedgerEndTerm()).voteResult(VoteResponse.RESULT.REJECT_TERM_SMALL_THAN_LEDGER));
             }
 
+            /**
+             * 节点选举leader
+             */
             memberState.setCurrVoteFor(request.getLeaderId());
             return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.ACCEPT));
         }
@@ -304,6 +375,10 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 向FOLLOWER发送心跳信号，当法定人数追随者不响应时，退到CANDIDATE。
+     * @throws Exception
+     */
     private void maintainAsLeader() throws Exception {
         if (DLedgerUtils.elapsed(lastSendHeartBeatTime) > heartBeatTimeIntervalMs) {
             long term;
@@ -321,6 +396,10 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 接受心跳，当LEADER没有心跳时，改为CANDIDATE。
+     * @throws Exception
+     */
     private void maintainAsFollower() {
         if (DLedgerUtils.elapsed(lastLeaderHeartBeatTime) > 2 * heartBeatTimeIntervalMs) {
             synchronized (memberState) {
@@ -332,22 +411,44 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 在集群内发起选举
+     * @param term
+     * @param ledgerEndTerm
+     * @param ledgerEndIndex
+     * @return
+     * @throws Exception
+     */
     private List<CompletableFuture<VoteResponse>> voteForQuorumResponses(long term, long ledgerEndTerm,
         long ledgerEndIndex) throws Exception {
         List<CompletableFuture<VoteResponse>> responses = new ArrayList<>();
         for (String id : memberState.getPeerMap().keySet()) {
+            /**
+             * 选举请求对象
+             */
             VoteRequest voteRequest = new VoteRequest();
             voteRequest.setGroup(memberState.getGroup());
             voteRequest.setLedgerEndIndex(ledgerEndIndex);
             voteRequest.setLedgerEndTerm(ledgerEndTerm);
+
+            /**
+             * 选举节点本身
+             */
             voteRequest.setLeaderId(memberState.getSelfId());
             voteRequest.setTerm(term);
             voteRequest.setRemoteId(id);
             CompletableFuture<VoteResponse> voteResponse;
+
             if (memberState.getSelfId().equals(id)) {
+                /**
+                 * 选举自己
+                 */
                 voteResponse = handleVote(voteRequest, true);
             } else {
                 //async
+                /**
+                 * 向集群内其他节点发起选举
+                 */
                 voteResponse = dLedgerRpcService.vote(voteRequest);
             }
             responses.add(voteResponse);
@@ -360,6 +461,10 @@ public class DLedgerLeaderElector {
         return System.currentTimeMillis() + lastVoteCost + minVoteIntervalMs + random.nextInt(maxVoteIntervalMs - minVoteIntervalMs);
     }
 
+    /**
+     * 投票选举
+     * @throws Exception
+     */
     private void maintainAsCandidate() throws Exception {
         //for candidate
         if (System.currentTimeMillis() < nextTimeToRequestVote && !needIncreaseTermImmediately) {
@@ -369,11 +474,22 @@ public class DLedgerLeaderElector {
         long ledgerEndTerm;
         long ledgerEndIndex;
         synchronized (memberState) {
+            /**
+             * 非CANDIDATE
+             */
             if (!memberState.isCandidate()) {
                 return;
             }
+
+            /**
+             * WAIT_TO_VOTE_NEXT时    选期+1
+             */
             if (lastParseResult == VoteResponse.ParseResult.WAIT_TO_VOTE_NEXT || needIncreaseTermImmediately) {
                 long prevTerm = memberState.currTerm();
+
+                /**
+                 * 更改选期并持久化到currterm文件
+                 */
                 term = memberState.nextTerm();
                 logger.info("{}_[INCREASE_TERM] from {} to {}", memberState.getSelfId(), prevTerm, term);
                 lastParseResult = VoteResponse.ParseResult.WAIT_TO_REVOTE;
@@ -390,6 +506,10 @@ public class DLedgerLeaderElector {
         }
 
         long startVoteTimeMs = System.currentTimeMillis();
+
+        /**
+         * 发起选举
+         */
         final List<CompletableFuture<VoteResponse>> quorumVoteResponses = voteForQuorumResponses(term, ledgerEndTerm, ledgerEndIndex);
         final AtomicLong knownMaxTermInGroup = new AtomicLong(-1);
         final AtomicInteger allNum = new AtomicInteger(0);
@@ -400,6 +520,9 @@ public class DLedgerLeaderElector {
         final AtomicBoolean alreadyHasLeader = new AtomicBoolean(false);
 
         CountDownLatch voteLatch = new CountDownLatch(1);
+        /**
+         * 遍历所有结果
+         */
         for (CompletableFuture<VoteResponse> future : quorumVoteResponses) {
             future.whenComplete((VoteResponse x, Throwable ex) -> {
                 try {
@@ -511,9 +634,17 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 通过 RoleChangeHandler 把角色变更透传给 RocketMQ 的Broker，从而达到主备自动切换的目标
+     * @param term
+     * @param role
+     */
     private void handleRoleChange(long term, MemberState.Role role) {
         for (RoleChangeHandler roleChangeHandler : roleChangeHandlers) {
             try {
+                /**
+                 * 接口由rocketmq实现
+                 */
                 roleChangeHandler.handle(term, role);
             } catch (Throwable t) {
                 logger.warn("Handle role change failed term={} role={} handler={}", term, role, roleChangeHandler.getClass(), t);
@@ -544,6 +675,9 @@ public class DLedgerLeaderElector {
         @Override public void doWork() {
             try {
                 if (DLedgerLeaderElector.this.dLedgerConfig.isEnableLeaderElector()) {
+                    /**
+                     * 设置时间间隔
+                     */
                     DLedgerLeaderElector.this.refreshIntervals(dLedgerConfig);
                     DLedgerLeaderElector.this.maintainState();
                 }

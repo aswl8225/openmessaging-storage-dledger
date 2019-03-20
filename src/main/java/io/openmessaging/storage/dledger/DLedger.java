@@ -29,7 +29,14 @@ public class DLedger {
     public static void main(String args[]) {
         DLedgerConfig dLedgerConfig = new DLedgerConfig();
         JCommander.newBuilder().addObject(dLedgerConfig).build().parse(args);
+        /**
+         * 初始化DLedgerServer
+         */
         DLedgerServer dLedgerServer = new DLedgerServer(dLedgerConfig);
+
+        /**
+         * 启动
+         */
         dLedgerServer.startup();
         logger.info("[{}] group {} start ok with config {}", dLedgerConfig.getSelfId(), dLedgerConfig.getGroup(), JSON.toJSONString(dLedgerConfig));
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {

@@ -46,20 +46,38 @@ public class IOUtils {
     public static final Charset DEFAULT_CHARSET = Charset.forName("utf-8");
     private static Logger logger = LoggerFactory.getLogger(IOUtils.class);
 
+    /**
+     * 将str持久化到fileName
+     * @param str
+     * @param fileName
+     * @throws IOException
+     */
     public static void string2File(final String str, final String fileName) throws IOException {
 
+        /**
+         * 创建tmpFile   将str持久化到tmpFile
+         */
         String tmpFile = fileName + ".tmp";
         string2FileNotSafe(str, tmpFile);
 
+        /**
+         * 创建bakFile   将fileName中的内容持久化到bakFile
+         */
         String bakFile = fileName + ".bak";
         String prevContent = file2String(fileName);
         if (prevContent != null) {
             string2FileNotSafe(prevContent, bakFile);
         }
 
+        /**
+         * 删除fileName文件
+         */
         File file = new File(fileName);
         file.delete();
 
+        /**
+         * 将tmpFile重命名为fileName
+         */
         file = new File(tmpFile);
         file.renameTo(new File(fileName));
     }
@@ -84,12 +102,33 @@ public class IOUtils {
         }
     }
 
+    /**
+     * 读取term文件数据
+     * @param fileName
+     * @return
+     * @throws IOException
+     */
     public static String file2String(final String fileName) throws IOException {
+        /**
+         * term文件
+         */
         File file = new File(fileName);
+        /**
+         * 读取文件中的数据
+         */
         return file2String(file);
     }
 
+    /**
+     * 读取文件中的数据
+     * @param file
+     * @return
+     * @throws IOException
+     */
     public static String file2String(final File file) throws IOException {
+        /**
+         * 文件存在  则读取文件下的数据
+         */
         if (file.exists()) {
             byte[] data = new byte[(int) file.length()];
             boolean result;

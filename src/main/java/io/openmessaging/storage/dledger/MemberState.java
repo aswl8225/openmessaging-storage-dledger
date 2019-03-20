@@ -20,11 +20,13 @@ package io.openmessaging.storage.dledger;
 import io.openmessaging.storage.dledger.protocol.DLedgerResponseCode;
 import io.openmessaging.storage.dledger.utils.IOUtils;
 import io.openmessaging.storage.dledger.utils.PreConditions;
+
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.locks.ReentrantLock;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,23 +58,50 @@ public class MemberState {
         this.group = config.getGroup();
         this.selfId = config.getSelfId();
         this.peers = config.getPeers();
+        /**
+         * peers格式为：n0-localhost:20911；n1-xxx.xxx.xxx.xxx:xxxx ...
+         *
+         * 将其按照【;】和【-】分割后   注入到peerMap
+         */
         for (String peerInfo : this.peers.split(";")) {
             peerMap.put(peerInfo.split("-")[0], peerInfo.split("-")[1]);
         }
         this.dLedgerConfig = config;
+
+        /**
+         * 加载term文件
+         */
         loadTerm();
     }
 
+    /**
+     * 加载term
+     */
     private void loadTerm() {
         try {
+            /**
+             * 读取\tmp\dledgerstore\dledger-n0\currterm下的数据
+             */
             String data = IOUtils.file2String(dLedgerConfig.getDefaultPath() + File.separator + TERM_PERSIST_FILE);
+
+            /**
+             * 解析data成Properties
+             */
             Properties properties = IOUtils.string2Properties(data);
             if (properties == null) {
                 return;
             }
+
+            /**
+             * 从properties中获取currTerm
+             */
             if (properties.containsKey(TERM_PERSIST_KEY_TERM)) {
                 currTerm = Long.valueOf(String.valueOf(properties.get(TERM_PERSIST_KEY_TERM)));
             }
+
+            /**
+             * 从properties中获取voteLeader
+             */
             if (properties.containsKey(TERM_PERSIST_KEY_VOTE_FOR)) {
                 currVoteFor = String.valueOf(properties.get(TERM_PERSIST_KEY_VOTE_FOR));
                 if (currVoteFor.length() == 0) {
@@ -84,12 +113,26 @@ public class MemberState {
         }
     }
 
+    /**
+     * 持久化currterm文件
+     */
     private void persistTerm() {
         try {
+            /**
+             * 设置文件对应的属性  voteLeader和currTerm
+             */
             Properties properties = new Properties();
             properties.put(TERM_PERSIST_KEY_TERM, currTerm);
             properties.put(TERM_PERSIST_KEY_VOTE_FOR, currVoteFor == null ? "" : currVoteFor);
+
+            /**
+             * 将properties转成String
+             */
             String data = IOUtils.properties2String(properties);
+
+            /**
+             * 持久化
+             */
             IOUtils.string2File(data, dLedgerConfig.getDefaultPath() + File.separator + TERM_PERSIST_FILE);
         } catch (Throwable t) {
             logger.error("Persist curr term failed", t);
@@ -104,19 +147,45 @@ public class MemberState {
         return currVoteFor;
     }
 
+    /**
+     * 选取currVoteFor为leader
+     * @param currVoteFor
+     */
     public synchronized void setCurrVoteFor(String currVoteFor) {
         this.currVoteFor = currVoteFor;
+
+        /**
+         * 持久化currterm文件
+         */
         persistTerm();
     }
 
+    /**
+     * 更改选期并持久化到currterm文件
+     * @return
+     */
     public synchronized long nextTerm() {
+        /**
+         * 角色为CANDIDATE
+         */
         PreConditions.check(role == CANDIDATE, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%s != %s", role, CANDIDATE);
+
+        /**
+         * 集群内最大选期大于当前选期
+         */
         if (knownMaxTermInGroup > currTerm) {
             currTerm = knownMaxTermInGroup;
         } else {
+            /**
+             * 选期+1
+             */
             ++currTerm;
         }
         currVoteFor = null;
+
+        /**
+         * 持久化currterm文件
+         */
         persistTerm();
         return currTerm;
     }
@@ -133,9 +202,17 @@ public class MemberState {
         this.leaderId = leaderId;
     }
 
+    /**
+     * 修改节点角色为Candidate
+     * @param term
+     */
     public synchronized void changeToCandidate(long term) {
         assert term >= currTerm;
         PreConditions.check(term >= currTerm, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "should %d >= %d", term, currTerm);
+
+        /**
+         * 选期大于集群内最大的选期
+         */
         if (term > knownMaxTermInGroup) {
             knownMaxTermInGroup = term;
         }
