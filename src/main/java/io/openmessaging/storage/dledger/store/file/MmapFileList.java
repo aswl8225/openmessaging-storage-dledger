@@ -52,14 +52,24 @@ public class MmapFileList {
         this.mappedFileSize = mappedFileSize;
     }
 
+    /**
+     * 校验文件是否联系
+     * @return
+     */
     public boolean checkSelf() {
         if (!this.mappedFiles.isEmpty()) {
             Iterator<MmapFile> iterator = mappedFiles.iterator();
             MmapFile pre = null;
+            /**
+             * 遍历问价你列表
+             */
             while (iterator.hasNext()) {
                 MmapFile cur = iterator.next();
 
                 if (pre != null) {
+                    /**
+                     * 根绝相邻文件的FileFromOffset差值   判断文件是否连续
+                     */
                     if (cur.getFileFromOffset() - pre.getFileFromOffset() != this.mappedFileSize) {
                         logger.error("[BUG]The mappedFile queue's data is damaged, the adjacent mappedFile's offset don't match pre file {}, cur file {}",
                             pre.getFileName(), cur.getFileName());
@@ -291,14 +301,22 @@ public class MmapFileList {
         if (files != null) {
             // ascending order
             Arrays.sort(files);
+            /**
+             * 遍历文件夹下的文件
+             */
             for (File file : files) {
-
+                /**
+                 * 文件大小是否匹配
+                 */
                 if (file.length() != this.mappedFileSize) {
                     logger.warn(file + "\t" + file.length()
                         + " length not matched message store config value, please check it manually. You should delete old files before changing mapped file size");
                     return false;
                 }
                 try {
+                    /**
+                     * 按路径加载文件到内存
+                     */
                     MmapFile mappedFile = new DefaultMmapFile(file.getPath(), mappedFileSize);
 
                     mappedFile.setWrotePosition(this.mappedFileSize);

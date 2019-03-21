@@ -142,13 +142,22 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     }
 
     public void recover() {
+        /**
+         * 只执行一次
+         */
         if (!hasRecovered.compareAndSet(false, true)) {
             return;
         }
+        /**
+         * 判断data和index文件是否连续
+         */
         PreConditions.check(dataFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check data file order failed before recovery");
         PreConditions.check(indexFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check index file order failed before recovery");
         final List<MmapFile> mappedFiles = this.dataFileList.getMappedFiles();
         if (mappedFiles.isEmpty()) {
+            /**
+             * data文件为空时
+             */
             this.indexFileList.updateWherePosition(0);
             this.indexFileList.truncateOffset(0);
             return;

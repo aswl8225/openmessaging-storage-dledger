@@ -37,7 +37,9 @@ import org.slf4j.LoggerFactory;
 public class DefaultMmapFile extends ReferenceResource implements MmapFile {
     public static final int OS_PAGE_SIZE = 1024 * 4;
     protected static Logger logger = LoggerFactory.getLogger(DefaultMmapFile.class);
+    //内存中加载的所有文件大小的总和
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
+    //内存中加载的文件数量
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
 
     final AtomicInteger startPosition = new AtomicInteger(0);
@@ -53,16 +55,29 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
     private volatile long storeTimestamp = 0;
     private boolean firstCreateInQueue = false;
 
+    /**
+     * 加载文件到内存
+     * @param fileName
+     * @param fileSize
+     * @throws IOException
+     */
     public DefaultMmapFile(final String fileName, final int fileSize) throws IOException {
         this.fileName = fileName;
         this.fileSize = fileSize;
         this.file = new File(fileName);
+        //文件起始存储的offset
         this.fileFromOffset = Long.parseLong(this.file.getName());
         boolean ok = false;
 
+        /**
+         * 确保文件夹存在
+         */
         ensureDirOK(this.file.getParent());
 
         try {
+            /**
+             * 读取文件  并赋予读写权限
+             */
             this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
             this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
             TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
