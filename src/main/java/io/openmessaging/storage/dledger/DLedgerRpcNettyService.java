@@ -121,11 +121,21 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return memberState.getPeerAddr(request.getRemoteId());
     }
 
+    /**
+     * 发送心跳
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<HeartBeatResponse> heartBeat(HeartBeatRequest request) throws Exception {
         CompletableFuture<HeartBeatResponse> future = new CompletableFuture<>();
         try {
             RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.HEART_BEAT.getCode(), null);
             wrapperRequest.setBody(JSON.toJSONBytes(request));
+
+            /**
+             * 异步发送心跳
+             */
             remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
                 HeartBeatResponse response = JSON.parseObject(responseFuture.getResponseCommand().getBody(), HeartBeatResponse.class);
                 future.complete(response);
@@ -308,6 +318,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 }, futureExecutor);
                 break;
             }
+            /**
+             * 心跳
+             */
             case HEART_BEAT: {
                 HeartBeatRequest heartBeatRequest = JSON.parseObject(request.getBody(), HeartBeatRequest.class);
                 CompletableFuture<HeartBeatResponse> future = handleHeartBeat(heartBeatRequest);
@@ -323,6 +336,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return null;
     }
 
+    /**
+     * 接受leader的心跳
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         return dLedgerServer.handleHeartBeat(request);

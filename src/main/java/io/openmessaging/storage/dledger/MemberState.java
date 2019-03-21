@@ -190,6 +190,10 @@ public class MemberState {
         return currTerm;
     }
 
+    /**
+     * 晋升为leader
+     * @param term
+     */
     public synchronized void changeToLeader(long term) {
         PreConditions.check(currTerm == term, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%d != %d", currTerm, term);
         this.role = LEADER;
@@ -257,6 +261,11 @@ public class MemberState {
         return role == CANDIDATE;
     }
 
+    /**
+     * 是否达到法定席数  即传入的num是否大于等于(集群总量 / 2) + 1
+     * @param num
+     * @return
+     */
     public boolean isQuorum(int num) {
         return num >= ((peerSize() / 2) + 1);
     }
@@ -265,6 +274,9 @@ public class MemberState {
         return peerMap.size();
     }
 
+    /**
+     * 是否为同一个集群
+     */
     public boolean isPeerMember(String id) {
         return id != null && peerMap.containsKey(id);
     }

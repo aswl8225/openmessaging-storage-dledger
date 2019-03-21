@@ -138,12 +138,24 @@ public class DLedgerServer implements DLedgerProtocolHander {
         return memberState;
     }
 
+    /**
+     * 接受leader的心跳
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         try {
-
+            /**
+             * 该请求是发送给当前节点的  SelfId==RemoteId  并且同属于一个集群内部
+             */
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
+
+            /**
+             * 接受leader的心跳
+             */
             return dLedgerLeaderElector.handleHeartBeat(request);
         } catch (DLedgerException e) {
             logger.error("[{}][HandleHeartBeat] failed", memberState.getSelfId(), e);
