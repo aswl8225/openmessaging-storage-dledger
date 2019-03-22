@@ -181,6 +181,11 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         return this.fileFromOffset;
     }
 
+    /**
+     * 写入数据
+     * @param data the byte array to append
+     * @return
+     */
     @Override
     public boolean appendMessage(final byte[] data) {
         return appendMessage(data, 0, data.length);
@@ -199,6 +204,9 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         if ((currentPos + length) <= this.fileSize) {
             ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
+            /**
+             * 写入数据
+             */
             byteBuffer.put(data, offset, length);
             this.wrotePosition.addAndGet(length);
             return true;
@@ -295,8 +303,16 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         return null;
     }
 
+    /**
+     * 返回文件从pos开始的全部有效数据
+     * @param pos the given position
+     * @return
+     */
     @Override
     public SelectMmapBufferResult selectMappedBuffer(int pos) {
+        /**
+         * 当前文件最大写入位置
+         */
         int readPosition = getReadPosition();
         if (pos < readPosition && pos >= 0) {
             if (this.hold()) {
@@ -364,6 +380,11 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         return true;
     }
 
+    /**
+     * 删除文件
+     * @param intervalForcibly If {@code true} then this method will destroy the file forcibly and ignore the reference
+     * @return
+     */
     @Override
     public boolean destroy(final long intervalForcibly) {
         this.shutdown(intervalForcibly);

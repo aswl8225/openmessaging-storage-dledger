@@ -38,6 +38,15 @@ public class DLedgerEntryCoder {
         byteBuffer.flip();
     }
 
+    /**
+     * 写如index数据
+     * @param pos
+     * @param size
+     * @param magic
+     * @param index
+     * @param term
+     * @param byteBuffer
+     */
     public static void encodeIndex(long pos, int size, int magic, long index, long term, ByteBuffer byteBuffer) {
         byteBuffer.clear();
         byteBuffer.putInt(magic);

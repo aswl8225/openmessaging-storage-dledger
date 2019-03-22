@@ -154,14 +154,25 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         PreConditions.check(dataFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check data file order failed before recovery");
         PreConditions.check(indexFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check index file order failed before recovery");
         final List<MmapFile> mappedFiles = this.dataFileList.getMappedFiles();
+
+        /**
+         * data文件列表为空时
+         */
         if (mappedFiles.isEmpty()) {
             /**
-             * data文件为空时
+             * 修改indexFileList刷盘和提交位置
              */
             this.indexFileList.updateWherePosition(0);
+            /**
+             * 删除indexFileList中的文件
+             */
             this.indexFileList.truncateOffset(0);
             return;
         }
+
+        /**
+         * 获取data列表中的最后一个文件
+         */
         MmapFile lastMappedFile = dataFileList.getLastMappedFile();
         int index = mappedFiles.size() - 3;
         if (index < 0) {
@@ -175,6 +186,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
             try {
                 long startPos = mappedFile.getFileFromOffset();
+                /**
+                 * 存储结构详见DLedgerEntry
+                 */
                 int magic = byteBuffer.getInt();
                 int size = byteBuffer.getInt();
                 long entryIndex = byteBuffer.getLong();
@@ -184,12 +198,16 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 byteBuffer.getInt(); //chain crc
                 byteBuffer.getInt(); //body crc
                 int bodySize = byteBuffer.getInt();
+
                 PreConditions.check(magic != MmapFileList.BLANK_MAGIC_CODE && magic >= MAGIC_1 && MAGIC_1 <= CURRENT_MAGIC, DLedgerResponseCode.DISK_ERROR, "unknown magic=%d", magic);
                 PreConditions.check(size > DLedgerEntry.HEADER_SIZE, DLedgerResponseCode.DISK_ERROR, "Size %d should > %d", size, DLedgerEntry.HEADER_SIZE);
 
                 PreConditions.check(pos == startPos, DLedgerResponseCode.DISK_ERROR, "pos %d != %d", pos, startPos);
                 PreConditions.check(bodySize + DLedgerEntry.BODY_OFFSET == size, DLedgerResponseCode.DISK_ERROR, "size %d != %d + %d", size, bodySize, DLedgerEntry.BODY_OFFSET);
 
+                /**
+                 * 获取data数据对应的index数据
+                 */
                 SelectMmapBufferResult indexSbr = indexFileList.getData(entryIndex * INDEX_UNIT_SIZE);
                 PreConditions.check(indexSbr != null, DLedgerResponseCode.DISK_ERROR, "index=%d pos=%d", entryIndex, entryIndex * INDEX_UNIT_SIZE);
                 indexSbr.release();
@@ -205,12 +223,18 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 PreConditions.check(entryTerm == termFromIndex, DLedgerResponseCode.DISK_ERROR, "term %d != %d", entryTerm, termFromIndex);
                 PreConditions.check(posFromIndex == mappedFile.getFileFromOffset(), DLedgerResponseCode.DISK_ERROR, "pos %d != %d", mappedFile.getFileFromOffset(), posFromIndex);
                 firstEntryIndex = entryIndex;
+                /**
+                 * 跳出循环
+                 */
                 break;
             } catch (Throwable t) {
                 logger.warn("Pre check data and index failed {}", mappedFile.getFileName(), t);
             }
         }
-
+        //for结束
+        /**
+         * index为0或者为break处对应的index
+         */
         MmapFile mappedFile = mappedFiles.get(index);
         ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
         logger.info("Begin to recover data from entryIndex={} fileIndex={} fileSize={} fileName={} ", firstEntryIndex, index, mappedFiles.size(), mappedFile.getFileName());
@@ -220,16 +244,31 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         boolean needWriteIndex = false;
         while (true) {
             try {
+                /**
+                 * 当前消息在byteBuffer的位置
+                 */
                 int relativePos = byteBuffer.position();
+                /**
+                 * 当前消息在文件列表中的绝对位置
+                 */
                 long absolutePos = mappedFile.getFileFromOffset() + relativePos;
                 int magic = byteBuffer.getInt();
+                /**
+                 * 文件已读取到最后
+                 */
                 if (magic == MmapFileList.BLANK_MAGIC_CODE) {
                     processOffset = mappedFile.getFileFromOffset() + mappedFile.getFileSize();
                     index++;
                     if (index >= mappedFiles.size()) {
+                        /**
+                         * 文件列表中的数据已全部Recover
+                         */
                         logger.info("Recover data file over, the last file {}", mappedFile.getFileName());
                         break;
                     } else {
+                        /**
+                         * 对下一个文件开始Recover
+                         */
                         mappedFile = mappedFiles.get(index);
                         byteBuffer = mappedFile.sliceByteBuffer();
                         processOffset = mappedFile.getFileFromOffset();
@@ -238,6 +277,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                     }
                 }
 
+                /**
+                 * 存储结构详见DLedgerEntry
+                 */
                 int size = byteBuffer.getInt();
                 long entryIndex = byteBuffer.getLong();
                 long entryTerm = byteBuffer.getLong();
@@ -250,6 +292,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 PreConditions.check(pos == absolutePos, DLedgerResponseCode.DISK_ERROR, "pos %d != %d", pos, absolutePos);
                 PreConditions.check(bodySize + DLedgerEntry.BODY_OFFSET == size, DLedgerResponseCode.DISK_ERROR, "size %d != %d + %d", size, bodySize, DLedgerEntry.BODY_OFFSET);
 
+                /**
+                 * 指向下一条消息的初始位置
+                 */
                 byteBuffer.position(relativePos + size);
 
                 PreConditions.check(magic <= CURRENT_MAGIC && magic >= MAGIC_1, DLedgerResponseCode.DISK_ERROR, "pos=%d size=%d magic=%d index=%d term=%d currMagic=%d", absolutePos, size, magic, entryIndex, entryTerm, CURRENT_MAGIC);
@@ -258,17 +303,29 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 }
                 PreConditions.check(entryTerm >= lastEntryTerm, DLedgerResponseCode.DISK_ERROR, "pos=%d size=%d magic=%d index=%d term=%d lastEntryTerm=%d ", absolutePos, size, magic, entryIndex, entryTerm, lastEntryTerm);
                 PreConditions.check(size > DLedgerEntry.HEADER_SIZE, DLedgerResponseCode.DISK_ERROR, "size %d should > %d", size, DLedgerEntry.HEADER_SIZE);
+
+                /**
+                 * 判断是否需要将data中的数据写入或覆盖index中的数据
+                 */
                 if (!needWriteIndex) {
                     try {
+                        /**
+                         * 获取data数据对应的index数据
+                         */
                         SelectMmapBufferResult indexSbr = indexFileList.getData(entryIndex * INDEX_UNIT_SIZE);
                         PreConditions.check(indexSbr != null, DLedgerResponseCode.DISK_ERROR, "index=%d pos=%d", entryIndex, entryIndex * INDEX_UNIT_SIZE);
                         indexSbr.release();
+
                         ByteBuffer indexByteBuffer = indexSbr.getByteBuffer();
                         int magicFromIndex = indexByteBuffer.getInt();
                         long posFromIndex = indexByteBuffer.getLong();
                         int sizeFromIndex = indexByteBuffer.getInt();
                         long indexFromIndex = indexByteBuffer.getLong();
                         long termFromIndex = indexByteBuffer.getLong();
+
+                        /**
+                         * 比较当前data数据是否与index中对应的数据一致
+                         */
                         PreConditions.check(magic == magicFromIndex, DLedgerResponseCode.DISK_ERROR, "magic %d != %d", magic, magicFromIndex);
                         PreConditions.check(size == sizeFromIndex, DLedgerResponseCode.DISK_ERROR, "size %d != %d", size, sizeFromIndex);
                         PreConditions.check(entryIndex == indexFromIndex, DLedgerResponseCode.DISK_ERROR, "index %d != %d", entryIndex, indexFromIndex);
@@ -285,9 +342,18 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                         needWriteIndex = true;
                     }
                 }
+                /**
+                 * 写入或者覆盖
+                 */
                 if (needWriteIndex) {
                     ByteBuffer indexBuffer = localIndexBuffer.get();
+                    /**
+                     * 组装index数据
+                     */
                     DLedgerEntryCoder.encodeIndex(absolutePos, size, magic, entryIndex, entryTerm, indexBuffer);
+                    /**
+                     * 写入index文件
+                     */
                     long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
                     PreConditions.check(indexPos == entryIndex * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, "Write index failed index=%d", entryIndex);
                 }
@@ -299,6 +365,8 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 break;
             }
         }
+        //while结束
+
         logger.info("Recover data to the end entryIndex={} processOffset={} lastFileOffset={} cha={}",
             lastEntryIndex, processOffset, lastMappedFile.getFileFromOffset(), processOffset - lastMappedFile.getFileFromOffset());
         if (lastMappedFile.getFileFromOffset() - processOffset > lastMappedFile.getFileSize()) {

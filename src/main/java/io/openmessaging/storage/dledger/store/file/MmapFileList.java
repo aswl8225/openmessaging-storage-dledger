@@ -105,18 +105,35 @@ public class MmapFileList {
         return this.mappedFiles.toArray();
     }
 
+    /**
+     * 依照offset删除文件
+     * @param offset
+     */
     public void truncateOffset(long offset) {
+        /**
+         * 将列表转为数组
+         */
         Object[] mfs = this.copyMappedFiles();
         if (mfs == null) {
             return;
         }
+
+        /**
+         * 获取将要移除的文件列表   凡是文件初始存储的offset大于指定offset的文件  都会被移除  offset所在的文件不会被删除
+         */
         List<MmapFile> willRemoveFiles = new ArrayList<MmapFile>();
 
         for (int i = 0; i < mfs.length; i++) {
             MmapFile file = (MmapFile) mfs[i];
+            /**
+             * 每个文件可写入的最大offset
+             */
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
             if (fileTailOffset > offset) {
                 if (offset >= file.getFileFromOffset()) {
+                    /**
+                     * 更新offset对应文件的WrotePosition、CommittedPosition、FlushedPosition
+                     */
                     file.setWrotePosition((int) (offset % this.mappedFileSize));
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
@@ -126,10 +143,20 @@ public class MmapFileList {
             }
         }
 
+        /**
+         * 物理删除文件
+         */
         this.destroyExpiredFiles(willRemoveFiles);
+        /**
+         * 缓存中删除文件
+         */
         this.deleteExpiredFiles(willRemoveFiles);
     }
 
+    /**
+     * 删除files列表中的文件
+     * @param files
+     */
     void destroyExpiredFiles(List<MmapFile> files) {
         Collections.sort(files, new Comparator<MmapFile>() {
             @Override public int compare(MmapFile o1, MmapFile o2) {
@@ -176,12 +203,23 @@ public class MmapFileList {
         this.deleteExpiredFiles(willRemoveFiles);
     }
 
+    /**
+     * 修改position
+     * @param wherePosition
+     */
     public void updateWherePosition(long wherePosition) {
         if (wherePosition > getMaxWrotePosition()) {
             logger.warn("[UpdateWherePosition] wherePosition {} > maxWrotePosition {}", wherePosition, getMaxWrotePosition());
             return;
         }
+
+        /**
+         * 修改刷盘位置
+         */
         this.setFlushedWhere(wherePosition);
+        /**
+         * 修改提交位置
+         */
         this.setCommittedWhere(wherePosition);
     }
 
@@ -201,8 +239,21 @@ public class MmapFileList {
         return preAppend(len, true);
     }
 
+    /**
+     * 预写入数据   判断数据是否可以写入
+     * @param len 预计添加的数据大小
+     * @param useBlank 写入data文件为true  写入index为false（index的数据为定长）
+     * @return
+     */
     public long preAppend(int len, boolean useBlank) {
+        /**
+         * 获取最后一个文件
+         */
         MmapFile mappedFile = getLastMappedFile();
+
+        /**
+         * 不存在或者已经写满则新建
+         */
         if (null == mappedFile || mappedFile.isFull()) {
             mappedFile = getLastMappedFile(0);
         }
@@ -210,15 +261,33 @@ public class MmapFileList {
             logger.error("Create mapped file for {}", storePath);
             return -1;
         }
+
+        /**
+         * 写入data文件为8 写入index为0（index的数据为定长）
+         */
         int blank = useBlank ? MIN_BLANK_LEN : 0;
+
+        /**
+         * 待写入数据长度超过文件可写长度
+         */
         if (len + blank > mappedFile.getFileSize() - mappedFile.getWrotePosition()) {
+            /**
+             * index文件  直接返回错误
+             */
             if (blank < MIN_BLANK_LEN) {
                 logger.error("Blank {} should ge {}", blank, MIN_BLANK_LEN);
                 return -1;
             } else {
+                /**
+                 * data文件   写入BLANK_MAGIC_CODE  标志当前文件已不能再写入数据
+                 */
                 ByteBuffer byteBuffer = ByteBuffer.allocate(mappedFile.getFileSize() - mappedFile.getWrotePosition());
                 byteBuffer.putInt(BLANK_MAGIC_CODE);
                 byteBuffer.putInt(mappedFile.getFileSize() - mappedFile.getWrotePosition());
+
+                /**
+                 * 将数据写入到文件
+                 */
                 if (mappedFile.appendMessage(byteBuffer.array())) {
                     //need to set the wrote position
                     mappedFile.setWrotePosition(mappedFile.getFileSize());
@@ -226,6 +295,9 @@ public class MmapFileList {
                     logger.error("Append blank error for {}", storePath);
                     return -1;
                 }
+                /**
+                 * 创建新文件
+                 */
                 mappedFile = getLastMappedFile(0);
                 if (null == mappedFile) {
                     logger.error("Create mapped file for {}", storePath);
@@ -237,7 +309,18 @@ public class MmapFileList {
 
     }
 
+    /**
+     * 写入文件
+     * @param data 数据
+     * @param pos 读取位置
+     * @param len 读取长度
+     * @param useBlank  写入data文件为true  写入index为false（index的数据为定长）
+     * @return
+     */
     public long append(byte[] data, int pos, int len, boolean useBlank) {
+        /**
+         * 预写入数据   判断数据是否可以写入
+         */
         if (preAppend(len, useBlank) == -1) {
             return -1;
         }
@@ -259,7 +342,15 @@ public class MmapFileList {
         return null;
     }
 
+    /**
+     * 获取offset所在的文件中   从offset开始的有效数据
+     * @param offset
+     * @return
+     */
     public SelectMmapBufferResult getData(final long offset) {
+        /**
+         * 获取offset所在的文件
+         */
         MmapFile mappedFile = findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
             int pos = (int) (offset % mappedFileSize);
@@ -268,10 +359,17 @@ public class MmapFileList {
         return null;
     }
 
+    /**
+     * 缓存中删除文件
+     * @param files
+     */
     void deleteExpiredFiles(List<MmapFile> files) {
 
         if (!files.isEmpty()) {
 
+            /**
+             * 去除不属于mappedFiles的文件
+             */
             Iterator<MmapFile> iterator = files.iterator();
             while (iterator.hasNext()) {
                 MmapFile cur = iterator.next();
@@ -282,6 +380,9 @@ public class MmapFileList {
             }
 
             try {
+                /**
+                 * 在mappedFiles中删除文件
+                 */
                 if (!this.mappedFiles.removeAll(files)) {
                     logger.error("deleteExpiredFiles remove failed.");
                 }
@@ -334,20 +435,41 @@ public class MmapFileList {
         return true;
     }
 
+    /**
+     * 获取最后一个文件   没有或者已经写满则创建新文件
+     * @param startOffset
+     * @param needCreate
+     * @return
+     */
     public MmapFile getLastMappedFile(final long startOffset, boolean needCreate) {
         long createOffset = -1;
+        /**
+         * 最后一个文件
+         */
         MmapFile mappedFileLast = getLastMappedFile();
 
+        /**
+         * 当最后一个文件不存在或者已经写满时   得到下一个文件的名字
+         */
         if (mappedFileLast == null) {
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         } else if (mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
+        /**
+         * 创建新文件
+         */
         if (createOffset != -1 && needCreate) {
+            /**
+             * 新文件路径
+             */
             String nextFilePath = this.storePath + File.separator + DLedgerUtils.offset2FileName(createOffset);
             MmapFile mappedFile = null;
             try {
+                /**
+                 * 创建并加载文件到内存
+                 */
                 mappedFile = new DefaultMmapFile(nextFilePath, this.mappedFileSize);
             } catch (IOException e) {
                 logger.error("create mappedFile exception", e);
@@ -355,6 +477,9 @@ public class MmapFileList {
 
             if (mappedFile != null) {
                 if (this.mappedFiles.isEmpty()) {
+                    /**
+                     * 赋予第一个文件标志
+                     */
                     mappedFile.setFirstCreateInQueue(true);
                 }
                 this.mappedFiles.add(mappedFile);
@@ -366,10 +491,19 @@ public class MmapFileList {
         return mappedFileLast;
     }
 
+    /**
+     * 获取最后一个文件
+     * @param startOffset
+     * @return
+     */
     public MmapFile getLastMappedFile(final long startOffset) {
         return getLastMappedFile(startOffset, true);
     }
 
+    /**
+     * 获取文件列表中的最后一个文件
+     * @return
+     */
     public MmapFile getLastMappedFile() {
         MmapFile mappedFileLast = null;
 
@@ -404,9 +538,19 @@ public class MmapFileList {
         return 0;
     }
 
+    /**
+     * 获取文件列表中的最大写入位置
+     * @return
+     */
     public long getMaxWrotePosition() {
+        /**
+         * 获取最后一个文件
+         */
         MmapFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
+            /**
+             * 返回最大写入位置
+             */
             return mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
         }
         return 0;
