@@ -60,6 +60,9 @@ public class AppendAndGetTest extends ServerTestHarness {
         DLedgerClient dLedgerClient = launchClient(group, peers);
         long expectedPos = 0L;
         for (long i = 0; i < 10; i++) {
+            /**
+             * 写入消息
+             */
             AppendEntryResponse appendEntryResponse = dLedgerClient.append(new byte[100]);
             Assert.assertEquals(appendEntryResponse.getCode(), DLedgerResponseCode.SUCCESS.getCode());
             Assert.assertEquals(i, appendEntryResponse.getIndex());

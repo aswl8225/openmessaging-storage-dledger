@@ -110,6 +110,11 @@ public class DLedgerEntryPusher {
         }
     }
 
+    /**
+     * 检查term对应的Pending是否已经达到上限
+     * @param term
+     * @param env
+     */
     private void checkTermForPendingMap(long term, String env) {
         if (!pendingAppendResponsesByTerm.containsKey(term)) {
             logger.info("Initialize the pending append map in {} for term={}", env, term);
@@ -133,13 +138,29 @@ public class DLedgerEntryPusher {
         }
     }
 
+    /**
+     * 缓存是否已满  默认10000条数据
+     * @param currTerm
+     * @return
+     */
     public boolean isPendingFull(long currTerm) {
+        /**
+         * 检查Pending是否存在  没有则创建
+         */
         checkTermForPendingMap(currTerm, "isPendingFull");
         return pendingAppendResponsesByTerm.get(currTerm).size() > dLedgerConfig.getMaxPendingRequestsNum();
     }
 
+    /**
+     * 等待ack
+     * @param entry
+     * @return
+     */
     public CompletableFuture<AppendEntryResponse> waitAck(DLedgerEntry entry) {
         updatePeerWaterMark(entry.getTerm(), memberState.getSelfId(), entry.getIndex());
+        /**
+         * 集群中只有一个节点   直接返回
+         */
         if (memberState.getPeerMap().size() == 1) {
             AppendEntryResponse response = new AppendEntryResponse();
             response.setGroup(memberState.getGroup());

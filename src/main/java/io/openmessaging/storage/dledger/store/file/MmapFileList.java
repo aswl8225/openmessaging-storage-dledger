@@ -227,6 +227,13 @@ public class MmapFileList {
         return append(data, 0, data.length);
     }
 
+    /**
+     * 存储数据
+     * @param data
+     * @param pos
+     * @param len
+     * @return
+     */
     public long append(byte[] data, int pos, int len) {
         return append(data, pos, len, true);
     }
@@ -235,6 +242,11 @@ public class MmapFileList {
         return append(data, 0, data.length, useBlank);
     }
 
+    /**
+     * 预写入数据
+     * @param len
+     * @return
+     */
     public long preAppend(int len) {
         return preAppend(len, true);
     }
@@ -326,6 +338,10 @@ public class MmapFileList {
         }
         MmapFile mappedFile = getLastMappedFile();
         long currPosition = mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
+
+        /**
+         * 写入数据
+         */
         if (!mappedFile.appendMessage(data, pos, len)) {
             logger.error("Append error for {}", storePath);
             return -1;

@@ -38,6 +38,12 @@ public class DLedgerClientRpcNettyService extends DLedgerClientRpcService {
         this.remotingClient = new NettyRemotingClient(new NettyClientConfig(), null);
     }
 
+    /**
+     * 写入数据  只向leader写入
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<AppendEntryResponse> append(AppendEntryRequest request) throws Exception {
         RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.APPEND.getCode(), null);
@@ -47,6 +53,12 @@ public class DLedgerClientRpcNettyService extends DLedgerClientRpcService {
         return CompletableFuture.completedFuture(response);
     }
 
+    /**
+     * 查询leader
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<MetadataResponse> metadata(MetadataRequest request) throws Exception {
         RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.METADATA.getCode(), null);
         wrapperRequest.setBody(JSON.toJSONBytes(request));

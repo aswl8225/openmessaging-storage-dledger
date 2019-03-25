@@ -36,33 +36,54 @@ import org.slf4j.LoggerFactory;
 public class DLedgerClient {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerClient.class);
+    //集群内成员
     private final Map<String, String> peerMap = new ConcurrentHashMap<>();
+    //集群名称
     private final String group;
+    //leader
     private String leaderId;
     private DLedgerClientRpcService dLedgerClientRpcService;
 
     private MetadataUpdater metadataUpdater = new MetadataUpdater("MetadataUpdater", logger);
 
+    /**
+     * DLedger客户端
+     * @param group
+     * @param peers
+     */
     public DLedgerClient(String group, String peers) {
         this.group = group;
         updatePeers(peers);
         dLedgerClientRpcService = new DLedgerClientRpcNettyService();
         dLedgerClientRpcService.updatePeers(peers);
+        /**
+         * 集群内的第一个成员   做为leader
+         */
         leaderId = peerMap.keySet().iterator().next();
     }
 
     public AppendEntryResponse append(byte[] body) {
         try {
+            /**
+             * 获取leader
+             */
             waitOnUpdatingMetadata(1500, false);
             if (leaderId == null) {
                 AppendEntryResponse appendEntryResponse = new AppendEntryResponse();
                 appendEntryResponse.setCode(DLedgerResponseCode.METADATA_ERROR.getCode());
                 return appendEntryResponse;
             }
+
             AppendEntryRequest appendEntryRequest = new AppendEntryRequest();
             appendEntryRequest.setGroup(group);
+            /**
+             * 只向leader写入数据
+             */
             appendEntryRequest.setRemoteId(leaderId);
             appendEntryRequest.setBody(body);
+            /**
+             * 写入数据
+             */
             AppendEntryResponse response = dLedgerClientRpcService.append(appendEntryRequest).get();
             if (response.getCode() == DLedgerResponseCode.NOT_LEADER.getCode()) {
                 waitOnUpdatingMetadata(1500, true);
@@ -113,7 +134,14 @@ public class DLedgerClient {
     }
 
     public void startup() {
+        /**
+         * 启动netty
+         */
         this.dLedgerClientRpcService.startup();
+
+        /**
+         *
+         */
         this.metadataUpdater.start();
     }
 
@@ -128,11 +156,19 @@ public class DLedgerClient {
         }
     }
 
+    /**
+     * 设置客户端的leader为null   并唤醒metadataUpdater   查询集群中的leader
+     */
     private synchronized void needFreshMetadata() {
         leaderId = null;
         metadataUpdater.wakeup();
     }
 
+    /**
+     * 客户端是否获得当前集群中的leader
+     * @param maxWaitMs
+     * @param needFresh  重新获取leader
+     */
     private synchronized void waitOnUpdatingMetadata(long maxWaitMs, boolean needFresh) {
         if (needFresh) {
             leaderId = null;
@@ -141,6 +177,9 @@ public class DLedgerClient {
         }
         long start = System.currentTimeMillis();
         while (DLedgerUtils.elapsed(start) < maxWaitMs && leaderId == null) {
+            /**
+             * 唤醒metadataUpdater
+             */
             metadataUpdater.wakeup();
             try {
                 wait(1000);
@@ -156,16 +195,30 @@ public class DLedgerClient {
             super(name, logger);
         }
 
+        /**
+         * 向peerId查询当前集群中的leader
+         * @param peerId
+         * @param isLeader
+         */
         private void getMetadata(String peerId, boolean isLeader) {
             try {
                 MetadataRequest request = new MetadataRequest();
                 request.setGroup(group);
                 request.setRemoteId(peerId);
+                /**
+                 * 发起查询
+                 */
                 CompletableFuture<MetadataResponse> future = dLedgerClientRpcService.metadata(request);
                 MetadataResponse response = future.get(1500, TimeUnit.MILLISECONDS);
                 if (response.getLeaderId() != null) {
+                    /**
+                     * 更新leader
+                     */
                     leaderId = response.getLeaderId();
                     if (response.getPeers() != null) {
+                        /**
+                         * 更新集群成员
+                         */
                         peerMap.putAll(response.getPeers());
                         dLedgerClientRpcService.updatePeers(response.getPeers());
                     }
@@ -182,6 +235,9 @@ public class DLedgerClient {
         @Override public void doWork() {
             try {
                 if (leaderId == null) {
+                    /**
+                     * 没有leader   则向集群中的成员分别发送请求
+                     */
                     for (String peer : peerMap.keySet()) {
                         getMetadata(peer, false);
                         if (leaderId != null) {
@@ -193,6 +249,9 @@ public class DLedgerClient {
                         }
                     }
                 } else {
+                    /**
+                     * 已知leader  只向leader查询确认
+                     */
                     getMetadata(leaderId, true);
                 }
                 waitForRunning(3000);

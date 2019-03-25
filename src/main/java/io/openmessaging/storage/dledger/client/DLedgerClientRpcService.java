@@ -24,16 +24,29 @@ import java.util.concurrent.ConcurrentHashMap;
 public abstract class DLedgerClientRpcService implements DLedgerClientProtocol {
     private Map<String, String> peerMap = new ConcurrentHashMap<>();
 
+    /**
+     * 更新集群内成员
+     * @param peers
+     */
     public void updatePeers(String peers) {
         for (String peerInfo : peers.split(";")) {
             peerMap.put(peerInfo.split("-")[0], peerInfo.split("-")[1]);
         }
     }
 
+    /**
+     * 更新集群内成员
+     * @param peers
+     */
     public void updatePeers(Map<String, String> peers) {
         peerMap.putAll(peers);
     }
 
+    /**
+     * 得到集群中id对应的访问地址
+     * @param id
+     * @return
+     */
     public String getPeerAddr(String id) {
         return peerMap.get(id);
     }

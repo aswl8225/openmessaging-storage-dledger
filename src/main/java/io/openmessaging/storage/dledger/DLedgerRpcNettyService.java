@@ -81,6 +81,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         NettyRequestProcessor protocolProcessor = new NettyRequestProcessor() {
             @Override
             public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws Exception {
+                /**
+                 * 处理请求
+                 */
                 return DLedgerRpcNettyService.this.processRequest(ctx, request);
             }
 
@@ -267,14 +270,23 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws Exception {
         DLedgerRequestCode requestCode = DLedgerRequestCode.valueOf(request.getCode());
         switch (requestCode) {
+            /**
+             * 查询节点当前对应的leader
+             */
             case METADATA: {
                 MetadataRequest metadataRequest = JSON.parseObject(request.getBody(), MetadataRequest.class);
+                /**
+                 * 查询节点当前对应的leader
+                 */
                 CompletableFuture<MetadataResponse> future = handleMetadata(metadataRequest);
                 future.whenCompleteAsync((x, y) -> {
                     writeResponse(x, y, request, ctx);
                 }, futureExecutor);
                 break;
             }
+            /**
+             * 写入数据  只有leader接受
+             */
             case APPEND: {
                 AppendEntryRequest appendEntryRequest = JSON.parseObject(request.getBody(), AppendEntryRequest.class);
                 CompletableFuture<AppendEntryResponse> future = handleAppend(appendEntryRequest);
@@ -359,6 +371,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return CompletableFuture.completedFuture(response);
     }
 
+    /**
+     * 写入数据  只有leader接受
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<AppendEntryResponse> handleAppend(AppendEntryRequest request) throws Exception {
         return dLedgerServer.handleAppend(request);
@@ -368,6 +386,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return dLedgerServer.handleGet(request);
     }
 
+    /**
+     * METADATA 查询
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<MetadataResponse> handleMetadata(MetadataRequest request) throws Exception {
         return dLedgerServer.handleMetadata(request);
     }

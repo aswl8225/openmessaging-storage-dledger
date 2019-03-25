@@ -23,10 +23,15 @@ public class DLedgerEntry {
     public final static int HEADER_SIZE = POS_OFFSET + 8 + 4 + 4 + 4;
     public final static int BODY_OFFSET = HEADER_SIZE + 4;
 
+    //数据标志   即是否是正常位
     private int magic;
+    //消息大小
     private int size;
+    //存储的第几个消息
     private long index;
+    //选期
     private long term;
+    //offset
     private long pos; //used to validate data
     private int channel; //reserved
     private int chainCrc; //like the block chain, this crc indicates any modification before this entry.
@@ -89,6 +94,10 @@ public class DLedgerEntry {
         this.bodyCrc = bodyCrc;
     }
 
+    /**
+     * 计算消息大小
+     * @return
+     */
     public int computSizeInBytes() {
         size = HEADER_SIZE + 4 + body.length;
         return size;

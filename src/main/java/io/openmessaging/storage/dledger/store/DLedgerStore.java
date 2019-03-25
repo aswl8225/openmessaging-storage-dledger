@@ -44,6 +44,9 @@ public abstract class DLedgerStore {
 
     public abstract long getLedgerBeginIndex();
 
+    /**
+     * 更新ledgerEndIndex和ledgerEndTerm
+     */
     protected void updateLedgerEndIndexAndTerm() {
         if (getMemberState() != null) {
             getMemberState().updateLedgerIndexAndTerm(getLedgerEndIndex(), getLedgerEndTerm());

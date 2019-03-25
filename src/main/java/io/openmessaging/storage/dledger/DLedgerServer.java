@@ -212,11 +212,17 @@ public class DLedgerServer implements DLedgerProtocolHander {
     @Override
     public CompletableFuture<AppendEntryResponse> handleAppend(AppendEntryRequest request) throws IOException {
         try {
+            /**
+             * 校验
+             */
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
             PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER);
             long currTerm = memberState.currTerm();
             if (dLedgerEntryPusher.isPendingFull(currTerm)) {
+                /**
+                 * Pending已满  返回错误
+                 */
                 AppendEntryResponse appendEntryResponse = new AppendEntryResponse();
                 appendEntryResponse.setGroup(memberState.getGroup());
                 appendEntryResponse.setCode(DLedgerResponseCode.LEADER_PENDING_FULL.getCode());
@@ -224,6 +230,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
                 appendEntryResponse.setLeaderId(memberState.getSelfId());
                 return AppendFuture.newCompletedFuture(-1, appendEntryResponse);
             } else {
+                /**
+                 * 存储数据
+                 */
                 DLedgerEntry dLedgerEntry = new DLedgerEntry();
                 dLedgerEntry.setBody(request.getBody());
                 DLedgerEntry resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
@@ -262,10 +271,23 @@ public class DLedgerServer implements DLedgerProtocolHander {
         }
     }
 
+    /**
+     * 查询当前节点对应的leader
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<MetadataResponse> handleMetadata(MetadataRequest request) throws Exception {
         try {
+            /**
+             * 校验
+             */
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
+
+            /**
+             * 返回集群名称  集群中的成员   当前对应的leader
+             */
             MetadataResponse metadataResponse = new MetadataResponse();
             metadataResponse.setGroup(memberState.getGroup());
             metadataResponse.setPeers(memberState.getPeerMap());

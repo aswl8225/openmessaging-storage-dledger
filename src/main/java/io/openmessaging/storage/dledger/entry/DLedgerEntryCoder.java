@@ -21,8 +21,16 @@ import java.nio.ByteBuffer;
 
 public class DLedgerEntryCoder {
 
+    /**
+     * 将entry存储到byteBuffer
+     * @param entry
+     * @param byteBuffer
+     */
     public static void encode(DLedgerEntry entry, ByteBuffer byteBuffer) {
         byteBuffer.clear();
+        /**
+         * 计算当前消息大小
+         */
         int size = entry.computSizeInBytes();
         //always put magic on the first position
         byteBuffer.putInt(entry.getMagic());
@@ -39,7 +47,7 @@ public class DLedgerEntryCoder {
     }
 
     /**
-     * 写如index数据
+     * 写入index数据  magic 消息offset 消息大小  第几个消息 选期
      * @param pos
      * @param size
      * @param magic
@@ -80,6 +88,11 @@ public class DLedgerEntryCoder {
         return entry;
     }
 
+    /**
+     * 存储pos
+     * @param byteBuffer
+     * @param pos
+     */
     public static void setPos(ByteBuffer byteBuffer, long pos) {
         byteBuffer.mark();
         byteBuffer.position(byteBuffer.position() + DLedgerEntry.POS_OFFSET);
@@ -96,6 +109,13 @@ public class DLedgerEntryCoder {
         return pos;
     }
 
+    /**
+     * 存储index term magic
+     * @param byteBuffer
+     * @param index
+     * @param term
+     * @param magic
+     */
     public static void setIndexTerm(ByteBuffer byteBuffer, long index, long term, int magic) {
         byteBuffer.mark();
         byteBuffer.putInt(magic);

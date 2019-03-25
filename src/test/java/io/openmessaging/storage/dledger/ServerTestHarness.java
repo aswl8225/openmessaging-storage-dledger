@@ -62,7 +62,14 @@ public class ServerTestHarness extends ServerTestBase {
     }
 
     protected synchronized DLedgerClient launchClient(String group, String peers) {
+        /**
+         * DLedger客户端
+         */
         DLedgerClient dLedgerClient = new DLedgerClient(group, peers);
+
+        /**
+         * 启动
+         */
         dLedgerClient.startup();
         return dLedgerClient;
     }
