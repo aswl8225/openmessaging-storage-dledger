@@ -36,6 +36,28 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * data数据格式
+ *     4        magic;
+ *     4        size;
+ *     8        index;
+ *     8        term;
+ *     8        pos;
+ *     4        channel;
+ *     4        chainCrc;
+ *     4        bodyCrc;
+ *     4        bodyLength
+ *     byte[]   body;
+ */
+
+/**
+ * index数据格式
+ *     4        magic;
+ *     8        pos;
+ *     4        size;
+ *     8        index;
+ *     8        term;
+ */
 public class DLedgerMmapFileStore extends DLedgerStore {
 
     public static final String CHECK_POINT_FILE = "checkpoint";
@@ -626,6 +648,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return ledgerBeginIndex;
     }
 
+    /**
+     * 查询index处对应得data数据
+     * @param index
+     * @return
+     */
     @Override
     public DLedgerEntry get(Long index) {
         PreConditions.check(index >= 0, DLedgerResponseCode.INDEX_OUT_OF_RANGE, "%d should gt 0", index);
@@ -633,13 +660,24 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         SelectMmapBufferResult indexSbr = null;
         SelectMmapBufferResult dataSbr = null;
         try {
+            /**
+             * 查询index对应得index数据
+             *
+             *  index数据存储结构见最上
+             */
             indexSbr = indexFileList.getData(index * INDEX_UNIT_SIZE, INDEX_UNIT_SIZE);
             PreConditions.check(indexSbr != null && indexSbr.getByteBuffer() != null, DLedgerResponseCode.DISK_ERROR, "Get null index for %d", index);
             indexSbr.getByteBuffer().getInt(); //magic
             long pos = indexSbr.getByteBuffer().getLong();
             int size = indexSbr.getByteBuffer().getInt();
+            /**
+             * 获取data数据   从pos开始  长度为size
+             */
             dataSbr = dataFileList.getData(pos, size);
             PreConditions.check(dataSbr != null && dataSbr.getByteBuffer() != null, DLedgerResponseCode.DISK_ERROR, "Get null data for %d", index);
+            /**
+             * 将ByteBuffer转换为DLedgerEntry
+             */
             DLedgerEntry dLedgerEntry = DLedgerEntryCoder.decode(dataSbr.getByteBuffer());
             PreConditions.check(pos == dLedgerEntry.getPos(), DLedgerResponseCode.DISK_ERROR, "%d != %d", pos, dLedgerEntry.getPos());
             return dLedgerEntry;

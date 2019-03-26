@@ -349,10 +349,22 @@ public class MmapFileList {
         return currPosition;
     }
 
+    /**
+     * 获取offset处开始  长度为size得数据
+     * @param offset
+     * @param size
+     * @return
+     */
     public SelectMmapBufferResult getData(final long offset, final int size) {
+        /**
+         * 获取offset对应得mappedFile
+         */
         MmapFile mappedFile = findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
             int pos = (int) (offset % mappedFileSize);
+            /**
+             * 获取数据
+             */
             return mappedFile.selectMappedBuffer(pos, size);
         }
         return null;

@@ -53,6 +53,7 @@ public class DLedgerEntryPusher {
 
     private DLedgerRpcService dLedgerRpcService;
 
+    /**Map<term, ConcurrentMap<peerId, index>>**/
     private Map<Long, ConcurrentMap<String, Long>> peerWaterMarksByTerm = new ConcurrentHashMap<>();
     private Map<Long, ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>>> pendingAppendResponsesByTerm = new ConcurrentHashMap<>();
 
@@ -80,8 +81,20 @@ public class DLedgerEntryPusher {
     }
 
     public void startup() {
+        /**
+         * follower
+         * Accept the push request and order it by the index, then append to ledger store one by one.
+         */
         entryHandler.start();
+
+        /**
+         * leader
+         */
         quorumAckChecker.start();
+
+        /**
+         * 向其他节点发送请求   接受ack
+         */
         for (EntryDispatcher dispatcher : dispatcherMap.values()) {
             dispatcher.start();
         }
@@ -95,10 +108,21 @@ public class DLedgerEntryPusher {
         }
     }
 
+    /**
+     * follower接受leader推送得消息
+     * @param request
+     * @return
+     * @throws Exception
+     */
     public CompletableFuture<PushEntryResponse> handlePush(PushEntryRequest request) throws Exception {
         return entryHandler.handlePush(request);
     }
 
+    /**
+     * 检查term对应的peerWaterMarksByTerm是否存在    不存在则创建
+     * @param term
+     * @param env
+     */
     private void checkTermForWaterMark(long term, String env) {
         if (!peerWaterMarksByTerm.containsKey(term)) {
             logger.info("Initialize the watermark in {} for term={}", env, term);
@@ -111,7 +135,7 @@ public class DLedgerEntryPusher {
     }
 
     /**
-     * 检查term对应的Pending是否已经达到上限
+     * 检查term对应的Pending是否存在   不存在则创建
      * @param term
      * @param env
      */
@@ -122,6 +146,12 @@ public class DLedgerEntryPusher {
         }
     }
 
+    /**
+     * 更新peerWaterMarksByTerm
+     * @param term
+     * @param peerId
+     * @param index
+     */
     private void updatePeerWaterMark(long term, String peerId, long index) {
         synchronized (peerWaterMarksByTerm) {
             checkTermForWaterMark(term, "updatePeerWaterMark");
@@ -148,6 +178,9 @@ public class DLedgerEntryPusher {
          * 检查Pending是否存在  没有则创建
          */
         checkTermForPendingMap(currTerm, "isPendingFull");
+        /**
+         * 是否超过最大值
+         */
         return pendingAppendResponsesByTerm.get(currTerm).size() > dLedgerConfig.getMaxPendingRequestsNum();
     }
 
@@ -157,6 +190,9 @@ public class DLedgerEntryPusher {
      * @return
      */
     public CompletableFuture<AppendEntryResponse> waitAck(DLedgerEntry entry) {
+        /**
+         *
+         */
         updatePeerWaterMark(entry.getTerm(), memberState.getSelfId(), entry.getIndex());
         /**
          * 集群中只有一个节点   直接返回
@@ -170,13 +206,22 @@ public class DLedgerEntryPusher {
             response.setPos(entry.getPos());
             return AppendFuture.newCompletedFuture(entry.getPos(), response);
         } else {
+            /**
+             * 集群内有多个节点
+             */
             checkTermForPendingMap(entry.getTerm(), "waitAck");
             AppendFuture<AppendEntryResponse> future = new AppendFuture<>(dLedgerConfig.getMaxWaitAckTimeMs());
             future.setPos(entry.getPos());
+            /**
+             * 将term pos index  注入到pendingAppendResponsesByTerm
+             */
             CompletableFuture<AppendEntryResponse> old = pendingAppendResponsesByTerm.get(entry.getTerm()).put(entry.getIndex(), future);
             if (old != null) {
                 logger.warn("[MONITOR] get old wait at index={}", entry.getIndex());
             }
+            /**
+             * 唤醒Dispatchers
+             */
             wakeUpDispatchers();
             return future;
         }
@@ -221,10 +266,16 @@ public class DLedgerEntryPusher {
                 checkTermForPendingMap(currTerm, "QuorumAckChecker");
                 checkTermForWaterMark(currTerm, "QuorumAckChecker");
                 if (pendingAppendResponsesByTerm.size() > 1) {
+                    /**
+                     * 清除并立即返回非currTerm的缓存数据   返回码为DLedgerResponseCode.TERM_CHANGED
+                     */
                     for (Long term : pendingAppendResponsesByTerm.keySet()) {
                         if (term == currTerm) {
                             continue;
                         }
+                        /**
+                         * 立即返回TERM_CHANGED
+                         */
                         for (Map.Entry<Long, TimeoutFuture<AppendEntryResponse>> futureEntry : pendingAppendResponsesByTerm.get(term).entrySet()) {
                             AppendEntryResponse response = new AppendEntryResponse();
                             response.setGroup(memberState.getGroup());
@@ -234,9 +285,15 @@ public class DLedgerEntryPusher {
                             logger.info("[TermChange] Will clear the pending response index={} for term changed from {} to {}", futureEntry.getKey(), term, currTerm);
                             futureEntry.getValue().complete(response);
                         }
+                        /**
+                         * 清除缓存
+                         */
                         pendingAppendResponsesByTerm.remove(term);
                     }
                 }
+                /**
+                 * 清除非currTerm的缓存数据
+                 */
                 if (peerWaterMarksByTerm.size() > 1) {
                     for (Long term : peerWaterMarksByTerm.keySet()) {
                         if (term == currTerm) {
@@ -368,10 +425,21 @@ public class DLedgerEntryPusher {
             this.peerId = peerId;
         }
 
+        /**
+         * 检查状态
+         * @return
+         */
         private boolean checkAndFreshState() {
+            /**
+             * 非leader
+             */
             if (!memberState.isLeader()) {
                 return false;
             }
+
+            /**
+             * 保证term leaderId与memberState中的值相同   并设置type为COMPARE
+             */
             if (term != memberState.currTerm() || leaderId == null || !leaderId.equals(memberState.getLeaderId())) {
                 synchronized (memberState) {
                     if (!memberState.isLeader()) {
@@ -380,6 +448,9 @@ public class DLedgerEntryPusher {
                     PreConditions.check(memberState.getSelfId().equals(memberState.getLeaderId()), DLedgerResponseCode.UNKNOWN);
                     term = memberState.currTerm();
                     leaderId = memberState.getSelfId();
+                    /**
+                     * 修改状态
+                     */
                     changeState(-1, PushEntryRequest.Type.COMPARE);
                 }
             }
@@ -508,6 +579,11 @@ public class DLedgerEntryPusher {
             changeState(truncateIndex, PushEntryRequest.Type.APPEND);
         }
 
+        /**
+         * 修改状态
+         * @param index
+         * @param target
+         */
         private synchronized void changeState(long index, PushEntryRequest.Type target) {
             logger.info("[Push-{}]Change state from {} to {} at {}", peerId, type.get(), target, index);
             switch (target) {
@@ -518,6 +594,9 @@ public class DLedgerEntryPusher {
                     writeIndex = index + 1;
                     break;
                 case COMPARE:
+                    /**
+                     * 当前状态为APPEND  则修改为COMPARE  并重置compareIndex、pendingMap
+                     */
                     if (this.type.compareAndSet(PushEntryRequest.Type.APPEND, PushEntryRequest.Type.COMPARE)) {
                         compareIndex = -1;
                         pendingMap.clear();
@@ -534,9 +613,16 @@ public class DLedgerEntryPusher {
 
         private void doCompare() throws Exception {
             while (true) {
+                /**
+                 * 检查状态
+                 */
                 if (!checkAndFreshState()) {
                     break;
                 }
+
+                /**
+                 * 只能为COMPARE或者TRUNCATE
+                 */
                 if (type.get() != PushEntryRequest.Type.COMPARE
                     && type.get() != PushEntryRequest.Type.TRUNCATE) {
                     break;
@@ -553,10 +639,21 @@ public class DLedgerEntryPusher {
                     compareIndex = dLedgerStore.getLedgerEndIndex();
                 }
 
+                /**
+                 * 查询index处对应得data数据
+                 */
                 DLedgerEntry entry = dLedgerStore.get(compareIndex);
                 PreConditions.check(entry != null, DLedgerResponseCode.INTERNAL_ERROR, "compareIndex=%d", compareIndex);
+
+                /**
+                 * 构建请求对象   向其他follower推送消息
+                 */
                 PushEntryRequest request = buildPushRequest(entry, PushEntryRequest.Type.COMPARE);
                 CompletableFuture<PushEntryResponse> responseFuture = dLedgerRpcService.push(request);
+
+                /**
+                 * 等待3秒
+                 */
                 PushEntryResponse response = responseFuture.get(3, TimeUnit.SECONDS);
                 PreConditions.check(response != null, DLedgerResponseCode.INTERNAL_ERROR, "compareIndex=%d", compareIndex);
                 PreConditions.check(response.getCode() == DLedgerResponseCode.INCONSISTENT_STATE.getCode() || response.getCode() == DLedgerResponseCode.SUCCESS.getCode()
@@ -656,6 +753,12 @@ public class DLedgerEntryPusher {
             super("EntryHandler", logger);
         }
 
+        /**
+         * follower接受leader推送得消息
+         * @param request
+         * @return
+         * @throws Exception
+         */
         public CompletableFuture<PushEntryResponse> handlePush(PushEntryRequest request) throws Exception {
             //The timeout should smaller than the remoting layer's request timeout
             CompletableFuture<PushEntryResponse> future = new TimeoutFuture<>(1000);

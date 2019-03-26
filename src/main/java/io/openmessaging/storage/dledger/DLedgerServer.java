@@ -100,7 +100,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
         this.dLedgerRpcService.startup();
 
         /**
-         *
+         * commitlog同步
          */
         this.dLedgerEntryPusher.startup();
 
@@ -235,6 +235,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
                  */
                 DLedgerEntry dLedgerEntry = new DLedgerEntry();
                 dLedgerEntry.setBody(request.getBody());
+                /**
+                 * leader写入data和index数据
+                 */
                 DLedgerEntry resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
                 return dLedgerEntryPusher.waitAck(resEntry);
             }
@@ -309,6 +312,12 @@ public class DLedgerServer implements DLedgerProtocolHander {
         return null;
     }
 
+    /**
+     * follower接受leader推送得消息
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<PushEntryResponse> handlePush(PushEntryRequest request) throws Exception {
         try {
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());

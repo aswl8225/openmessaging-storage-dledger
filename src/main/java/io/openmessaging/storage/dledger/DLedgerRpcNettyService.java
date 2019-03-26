@@ -215,6 +215,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return CompletableFuture.completedFuture(response);
     }
 
+    /**
+     * leader向follower推送消息
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<PushEntryResponse> push(PushEntryRequest request) throws Exception {
         CompletableFuture<PushEntryResponse> future = new CompletableFuture<>();
         try {
@@ -311,6 +317,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 }, futureExecutor);
                 break;
             }
+            /**
+             * follower接受leader推送得消息
+             */
             case PUSH: {
                 PushEntryRequest pushEntryRequest = JSON.parseObject(request.getBody(), PushEntryRequest.class);
                 CompletableFuture<PushEntryResponse> future = handlePush(pushEntryRequest);
@@ -401,6 +410,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return dLedgerServer.handlePull(request);
     }
 
+    /**
+     * follower接受leader推送得消息
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<PushEntryResponse> handlePush(PushEntryRequest request) throws Exception {
         return dLedgerServer.handlePush(request);
     }

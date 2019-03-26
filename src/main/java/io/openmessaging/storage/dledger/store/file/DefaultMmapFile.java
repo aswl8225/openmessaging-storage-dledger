@@ -282,6 +282,12 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         return this.fileSize == this.wrotePosition.get();
     }
 
+    /**
+     * 获取offset处开始  长度为size得数据
+     * @param pos the given position
+     * @param size the size of the returned sub-region
+     * @return
+     */
     @Override
     public SelectMmapBufferResult selectMappedBuffer(int pos, int size) {
         int readPosition = getReadPosition();
