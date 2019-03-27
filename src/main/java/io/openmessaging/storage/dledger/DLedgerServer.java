@@ -322,6 +322,10 @@ public class DLedgerServer implements DLedgerProtocolHander {
         try {
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
+
+            /**
+             * follower接受leader推送得消息
+             */
             return dLedgerEntryPusher.handlePush(request);
         } catch (DLedgerException e) {
             logger.error("[{}][HandlePush] failed", memberState.getSelfId(), e);

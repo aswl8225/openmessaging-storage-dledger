@@ -536,11 +536,21 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
     }
 
+    /**
+     * TRUNCATE
+     * @param entry
+     * @param leaderTerm
+     * @param leaderId
+     * @return
+     */
     @Override
     public long truncate(DLedgerEntry entry, long leaderTerm, String leaderId) {
         PreConditions.check(memberState.isFollower(), DLedgerResponseCode.NOT_FOLLOWER, null);
         ByteBuffer dataBuffer = localEntryBuffer.get();
         ByteBuffer indexBuffer = localIndexBuffer.get();
+        /**
+         * 将entry存储到byteBuffer
+         */
         DLedgerEntryCoder.encode(entry, dataBuffer);
         int entrySize = dataBuffer.remaining();
         synchronized (memberState) {
@@ -549,17 +559,29 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             PreConditions.check(leaderId.equals(memberState.getLeaderId()), DLedgerResponseCode.INCONSISTENT_LEADER, "leaderId %s != %s", leaderId, memberState.getLeaderId());
             boolean existedEntry;
             try {
+                /**
+                 * 获取本地entry.getIndex()处的data数据  并比对与leader端数据是否一致
+                 */
                 DLedgerEntry tmp = get(entry.getIndex());
                 existedEntry = entry.equals(tmp);
             } catch (Throwable ignored) {
                 existedEntry = false;
             }
+            /**
+             * 一致则从下一条消息开始TRUNCATE   否则从当前消息TRUNCATE
+             */
             long truncatePos = existedEntry ? entry.getPos() + entry.getSize() : entry.getPos();
             if (truncatePos != dataFileList.getMaxWrotePosition()) {
                 logger.warn("[TRUNCATE]leaderId={} index={} truncatePos={} != maxPos={}, this is usually happened on the old leader", leaderId, entry.getIndex(), truncatePos, dataFileList.getMaxWrotePosition());
             }
+            /**
+             * data数据从truncatePos处执行TRUNCATE
+             */
             dataFileList.truncateOffset(truncatePos);
             if (dataFileList.getMaxWrotePosition() != truncatePos) {
+                /**
+                 * rebuild  data数据
+                 */
                 logger.warn("[TRUNCATE] rebuild for data wrotePos: {} != truncatePos: {}", dataFileList.getMaxWrotePosition(), truncatePos);
                 PreConditions.check(dataFileList.rebuildWithPos(truncatePos), DLedgerResponseCode.DISK_ERROR, "rebuild data truncatePos=%d", truncatePos);
             }
@@ -663,7 +685,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             /**
              * 查询index对应得index数据
              *
-             *  index数据存储结构见最上
+             * index数据存储结构见最上
              */
             indexSbr = indexFileList.getData(index * INDEX_UNIT_SIZE, INDEX_UNIT_SIZE);
             PreConditions.check(indexSbr != null && indexSbr.getByteBuffer() != null, DLedgerResponseCode.DISK_ERROR, "Get null index for %d", index);

@@ -89,11 +89,13 @@ public class DLedgerEntryPusher {
 
         /**
          * leader
+         * This thread will check the quorum index and complete the pending requests.
          */
         quorumAckChecker.start();
 
         /**
-         * 向其他节点发送请求   接受ack
+         * leader
+         * This thread will push the entry to follower(identified by peerId) and update the completed pushed index to index map
          */
         for (EntryDispatcher dispatcher : dispatcherMap.values()) {
             dispatcher.start();
@@ -213,14 +215,14 @@ public class DLedgerEntryPusher {
             AppendFuture<AppendEntryResponse> future = new AppendFuture<>(dLedgerConfig.getMaxWaitAckTimeMs());
             future.setPos(entry.getPos());
             /**
-             * 将term pos index  注入到pendingAppendResponsesByTerm
+             * 将term pos index  注入到pendingAppendResponsesByTerm   等待QuorumAckChecker得调度执行
              */
             CompletableFuture<AppendEntryResponse> old = pendingAppendResponsesByTerm.get(entry.getTerm()).put(entry.getIndex(), future);
             if (old != null) {
                 logger.warn("[MONITOR] get old wait at index={}", entry.getIndex());
             }
             /**
-             * 唤醒Dispatchers
+             * 唤醒Dispatchers   向follower发送push请求
              */
             wakeUpDispatchers();
             return future;
@@ -566,17 +568,32 @@ public class DLedgerEntryPusher {
             }
         }
 
+        /**
+         * TRUNCATE操作
+         * @param truncateIndex
+         * @throws Exception
+         */
         private void doTruncate(long truncateIndex) throws Exception {
             PreConditions.check(type.get() == PushEntryRequest.Type.TRUNCATE, DLedgerResponseCode.UNKNOWN);
+            /**
+             * 获取truncateIndex处的data数据
+             */
             DLedgerEntry truncateEntry = dLedgerStore.get(truncateIndex);
             PreConditions.check(truncateEntry != null, DLedgerResponseCode.UNKNOWN);
             logger.info("[Push-{}]Will push data to truncate truncateIndex={} pos={}", peerId, truncateIndex, truncateEntry.getPos());
             PushEntryRequest truncateRequest = buildPushRequest(truncateEntry, PushEntryRequest.Type.TRUNCATE);
+            /**
+             * 推送TRUNCATE请求
+             */
             PushEntryResponse truncateResponse = dLedgerRpcService.push(truncateRequest).get(3, TimeUnit.SECONDS);
             PreConditions.check(truncateResponse != null, DLedgerResponseCode.UNKNOWN, "truncateIndex=%d", truncateIndex);
             PreConditions.check(truncateResponse.getCode() == DLedgerResponseCode.SUCCESS.getCode(), DLedgerResponseCode.valueOf(truncateResponse.getCode()), "truncateIndex=%d", truncateIndex);
             lastPushCommitTimeMs = System.currentTimeMillis();
             changeState(truncateIndex, PushEntryRequest.Type.APPEND);
+
+            /**
+             * TRUNCATE如果失败   是否是要重新进行COMPARE操作？？？？
+             */
         }
 
         /**
@@ -595,7 +612,8 @@ public class DLedgerEntryPusher {
                     break;
                 case COMPARE:
                     /**
-                     * 当前状态为APPEND  则修改为COMPARE  并重置compareIndex、pendingMap
+                     * 当前状态为APPEND
+                     * 则修改为COMPARE  并重置compareIndex、pendingMap
                      */
                     if (this.type.compareAndSet(PushEntryRequest.Type.APPEND, PushEntryRequest.Type.COMPARE)) {
                         compareIndex = -1;
@@ -631,6 +649,9 @@ public class DLedgerEntryPusher {
                     break;
                 }
                 //revise the compareIndex
+                /**
+                 * 将比较的index重新赋值为leader的最终index
+                 */
                 if (compareIndex == -1) {
                     compareIndex = dLedgerStore.getLedgerEndIndex();
                     logger.info("[Push-{}][DoCompare] compareIndex=-1 means start to compare", peerId);
@@ -660,6 +681,9 @@ public class DLedgerEntryPusher {
                     , DLedgerResponseCode.valueOf(response.getCode()), "compareIndex=%d", compareIndex);
                 long truncateIndex = -1;
 
+                /**
+                 * 处理结果
+                 */
                 if (response.getCode() == DLedgerResponseCode.SUCCESS.getCode()) {
                     /*
                      * The comparison is successful:
@@ -667,6 +691,9 @@ public class DLedgerEntryPusher {
                      * 2.Truncate the follower, if the follower has some dirty entries.
                      */
                     if (compareIndex == response.getEndIndex()) {
+                        /**
+                         * follower存储的最后一条消息等于当前leader的compareIndex
+                         */
                         changeState(compareIndex, PushEntryRequest.Type.APPEND);
                         break;
                     } else {
@@ -679,6 +706,9 @@ public class DLedgerEntryPusher {
                      This usually happened when the follower has crashed for a long time while the leader has deleted the expired entries.
                      Just truncate the follower.
                      */
+                    /**
+                     * 这通常发生在follower崩溃了很长一段时间，而领导者删除了过期的条目
+                     */
                     truncateIndex = dLedgerStore.getLedgerBeginIndex();
                 } else if (compareIndex < response.getBeginIndex()) {
                     /*
@@ -686,16 +716,26 @@ public class DLedgerEntryPusher {
                      This happened rarely, usually means some disk damage.
                      Just truncate the follower.
                      */
+                    /**
+                     * 这种情况很少发生，通常意味着一些磁盘损坏。
+                     */
                     truncateIndex = dLedgerStore.getLedgerBeginIndex();
                 } else if (compareIndex > response.getEndIndex()) {
                     /*
                      The compared index is bigger than the follower's end index.
                      This happened frequently. For the compared index is usually starting from the end index of the leader.
                      */
+                    /**
+                     * 这种情况经常发生。因为compareIndex通常是从leader的最终index开始的。
+                     */
                     compareIndex = response.getEndIndex();
                 } else {
                     /*
                       Compare failed and the compared index is in the range of follower's entries.
+                     */
+                    /**
+                     * 比较失败，compareIndex在follower index的范围内。
+                     * 即  response.getBeginIndex() <= compareIndex <= response.getEndIndex()
                      */
                     compareIndex--;
                 }
@@ -709,11 +749,15 @@ public class DLedgerEntryPusher {
                  If get value for truncateIndex, do it right now.
                  */
                 if (truncateIndex != -1) {
+                    /**
+                     * 执行TRUNCATE操作
+                     */
                     changeState(truncateIndex, PushEntryRequest.Type.TRUNCATE);
                     doTruncate(truncateIndex);
                     break;
                 }
             }
+            //while结束
         }
 
         @Override
@@ -755,6 +799,8 @@ public class DLedgerEntryPusher {
 
         /**
          * follower接受leader推送得消息
+         *
+         * 将请求放入compareOrTruncateRequests中  等待EntryHandler处理
          * @param request
          * @return
          * @throws Exception
@@ -789,6 +835,12 @@ public class DLedgerEntryPusher {
             return future;
         }
 
+        /**
+         * push返回对象
+         * @param request
+         * @param code
+         * @return
+         */
         private PushEntryResponse buildResponse(PushEntryRequest request, int code) {
             PushEntryResponse response = new PushEntryResponse();
             response.setGroup(request.getGroup());
@@ -816,12 +868,25 @@ public class DLedgerEntryPusher {
             }
         }
 
+        /**
+         * COMPARE操作
+         * @param compareIndex
+         * @param request
+         * @param future
+         * @return
+         */
         private CompletableFuture<PushEntryResponse> handleDoCompare(long compareIndex, PushEntryRequest request,
             CompletableFuture<PushEntryResponse> future) {
             try {
                 PreConditions.check(compareIndex == request.getEntry().getIndex(), DLedgerResponseCode.UNKNOWN);
                 PreConditions.check(request.getType() == PushEntryRequest.Type.COMPARE, DLedgerResponseCode.UNKNOWN);
+                /**
+                 * follower本地获取compareIndex对应的消息
+                 */
                 DLedgerEntry local = dLedgerStore.get(compareIndex);
+                /**
+                 * 比较两者是否相等
+                 */
                 PreConditions.check(request.getEntry().equals(local), DLedgerResponseCode.INCONSISTENT_STATE);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
             } catch (Throwable t) {
@@ -845,12 +910,22 @@ public class DLedgerEntryPusher {
             return future;
         }
 
+        /**
+         * TRUNCATE
+         * @param truncateIndex
+         * @param request
+         * @param future
+         * @return
+         */
         private CompletableFuture<PushEntryResponse> handleDoTruncate(long truncateIndex, PushEntryRequest request,
             CompletableFuture<PushEntryResponse> future) {
             try {
                 logger.info("[HandleDoTruncate] truncateIndex={} pos={}", truncateIndex, request.getEntry().getPos());
                 PreConditions.check(truncateIndex == request.getEntry().getIndex(), DLedgerResponseCode.UNKNOWN);
                 PreConditions.check(request.getType() == PushEntryRequest.Type.TRUNCATE, DLedgerResponseCode.UNKNOWN);
+                /**
+                 * TRUNCATE
+                 */
                 long index = dLedgerStore.truncate(request.getEntry(), request.getTerm(), request.getLeaderId());
                 PreConditions.check(index == truncateIndex, DLedgerResponseCode.INCONSISTENT_STATE);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
@@ -930,7 +1005,7 @@ public class DLedgerEntryPusher {
                 }
 
                 /**
-                 * 仅FOLLOWER执行
+                 * 处理TRUNCATE、COMPARE、COMMIT请求
                  */
                 if (compareOrTruncateRequests.peek() != null) {
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair = compareOrTruncateRequests.poll();
@@ -949,6 +1024,9 @@ public class DLedgerEntryPusher {
                             break;
                     }
                 } else {
+                    /**
+                     * 处理APPEND
+                     */
                     long nextIndex = dLedgerStore.getLedgerEndIndex() + 1;
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair = writeRequestMap.remove(nextIndex);
                     if (pair == null) {

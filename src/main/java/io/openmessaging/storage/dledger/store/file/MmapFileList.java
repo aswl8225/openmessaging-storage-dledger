@@ -106,7 +106,7 @@ public class MmapFileList {
     }
 
     /**
-     * 依照offset删除文件
+     * 依照offset删除文件  即所有FileFromOffset>offset的文件
      * @param offset
      */
     public void truncateOffset(long offset) {
@@ -180,6 +180,10 @@ public class MmapFileList {
         }
     }
 
+    /**
+     * 删除offset对应的文件之前的文件  即所有存储最大offset小于offset的文件（不包含offset所处的文件）
+     * @param offset
+     */
     public void resetOffset(long offset) {
         Object[] mfs = this.copyMappedFiles();
         if (mfs == null) {
@@ -550,6 +554,10 @@ public class MmapFileList {
         return mappedFileLast;
     }
 
+    /**
+     * 获取文件列表开始写入位置的offset
+     * @return
+     */
     public long getMinOffset() {
         MmapFile mmapFile = getFirstMappedFile();
         if (mmapFile != null) {
@@ -852,11 +860,32 @@ public class MmapFileList {
         }
     }
 
+    /**
+     * 依照pos重建  即删除所有文件后   只创建pos所在的文件
+     * @param pos
+     * @return
+     */
     public boolean rebuildWithPos(long pos) {
+        /**
+         * 删除所有文件
+         */
         truncateOffset(-1);
+        /**
+         * 创建pos对应的文件
+         */
         getLastMappedFile(pos);
+        /**
+         * 删除文件起始offset大于pos的文件
+         */
         truncateOffset(pos);
+        /**
+         * 删除文件终止offset小于pos的文件  设置StartPosition
+         */
         resetOffset(pos);
+
+        /**
+         * 不出意外  则三者相同
+         */
         return pos == getMaxWrotePosition() && pos == getMinOffset();
     }
 
