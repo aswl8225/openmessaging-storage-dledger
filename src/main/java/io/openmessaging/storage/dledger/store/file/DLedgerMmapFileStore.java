@@ -431,16 +431,31 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return;
     }
 
+    /**
+     * 修正index数据的BeginIndex位置
+     */
     private void reviseLedgerBeginIndex() {
         //get ledger begin index
+        /**
+         * 获取第一个data数据文件
+         */
         MmapFile firstFile = dataFileList.getFirstMappedFile();
+        /**
+         * 获取该文件的内容
+         */
         SelectMmapBufferResult sbr = firstFile.selectMappedBuffer(0);
         try {
+            /**
+             * 获取StartPosition处的数据
+             */
             ByteBuffer tmpBuffer = sbr.getByteBuffer();
             tmpBuffer.position(firstFile.getStartPosition());
             tmpBuffer.getInt(); //magic
             tmpBuffer.getInt(); //size
             ledgerBeginIndex = tmpBuffer.getLong();
+            /**
+             * 删除文件终止offset小于pos的文件  设置StartPosition
+             */
             indexFileList.resetOffset(ledgerBeginIndex * INDEX_UNIT_SIZE);
         } finally {
             SelectMmapBufferResult.release(sbr);
@@ -606,14 +621,20 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 PreConditions.check(indexFileList.rebuildWithPos(truncateIndexOffset), DLedgerResponseCode.DISK_ERROR, "rebuild index truncatePos=%d", truncateIndexOffset);
             }
             /**
-             * 构建index数据   并写入
+             * 构建index数据   在truncateIndexOffset位置写入
              */
             DLedgerEntryCoder.encodeIndex(entry.getPos(), entrySize, entry.getMagic(), entry.getIndex(), entry.getTerm(), indexBuffer);
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
             ledgerEndTerm = memberState.currTerm();
             ledgerEndIndex = entry.getIndex();
+            /**
+             * 修正index文件
+             */
             reviseLedgerBeginIndex();
+            /**
+             * 修改memberstate中的endterm和endindex
+             */
             updateLedgerEndIndexAndTerm();
             return entry.getIndex();
         }
@@ -726,6 +747,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return committedIndex;
     }
 
+    /**
+     * 修改CommittedIndex
+     * @param term
+     * @param newCommittedIndex
+     */
     public void updateCommittedIndex(long term, long newCommittedIndex) {
         if (newCommittedIndex == -1
             || ledgerEndIndex == -1

@@ -783,6 +783,10 @@ public class MmapFileList {
         return null;
     }
 
+    /**
+     * 获取文件列表中的第一个文件
+     * @return
+     */
     public MmapFile getFirstMappedFile() {
         MmapFile mappedFileFirst = null;
 
