@@ -487,11 +487,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         ByteBuffer dataBuffer = localEntryBuffer.get();
         ByteBuffer indexBuffer = localIndexBuffer.get();
         /**
-         * 存入消息体并计算消息大小
+         * 只存入消息体并计算消息大小  其他皆默认值  待下面填入
          */
         DLedgerEntryCoder.encode(entry, dataBuffer);
         /**
-         * 消息大小
+         * data数据大小
          */
         int entrySize = dataBuffer.remaining();
         synchronized (memberState) {
@@ -511,7 +511,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             entry.setPos(prePos);
             PreConditions.check(prePos != -1, DLedgerResponseCode.DISK_ERROR, null);
             /**
-             * data存储pos
+             * data数据存储pos
              */
             DLedgerEntryCoder.setPos(dataBuffer, prePos);
             for (AppendHook writeHook : appendHooks) {

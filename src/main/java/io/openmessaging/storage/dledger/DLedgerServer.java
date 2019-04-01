@@ -239,6 +239,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
                  * leader写入data和index数据
                  */
                 DLedgerEntry resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
+                /**
+                 * 等待集群中follower的ack
+                 */
                 return dLedgerEntryPusher.waitAck(resEntry);
             }
         } catch (DLedgerException e) {

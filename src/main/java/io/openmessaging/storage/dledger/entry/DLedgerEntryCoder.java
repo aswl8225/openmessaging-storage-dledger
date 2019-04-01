@@ -80,6 +80,9 @@ public class DLedgerEntryCoder {
         entry.setChainCrc(byteBuffer.getInt());
         entry.setBodyCrc(byteBuffer.getInt());
         int bodySize = byteBuffer.getInt();
+        /**
+         * 消息体的大小bodySize要比整个data数据的size小
+         */
         if (readBody && bodySize < entry.getSize()) {
             byte[] body = new byte[bodySize];
             byteBuffer.get(body);

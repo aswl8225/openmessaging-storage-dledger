@@ -140,7 +140,7 @@ public class DLedgerClient {
         this.dLedgerClientRpcService.startup();
 
         /**
-         *
+         * 查询leader
          */
         this.metadataUpdater.start();
     }
@@ -225,6 +225,9 @@ public class DLedgerClient {
                 }
             } catch (Throwable t) {
                 if (isLeader) {
+                    /**
+                     * 查询集群中的leader
+                     */
                     needFreshMetadata();
                 }
                 logger.warn("Get metadata failed from {}", peerId, t);

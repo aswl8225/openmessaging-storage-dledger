@@ -45,7 +45,7 @@ public abstract class DLedgerStore {
     public abstract long getLedgerBeginIndex();
 
     /**
-     * 更新ledgerEndIndex和ledgerEndTerm
+     * 更新MemberState的ledgerEndIndex和ledgerEndTerm
      */
     protected void updateLedgerEndIndexAndTerm() {
         if (getMemberState() != null) {

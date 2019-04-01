@@ -193,7 +193,7 @@ public class DLedgerEntryPusher {
      */
     public CompletableFuture<AppendEntryResponse> waitAck(DLedgerEntry entry) {
         /**
-         *
+         * 更新peerWaterMarksByTerm
          */
         updatePeerWaterMark(entry.getTerm(), memberState.getSelfId(), entry.getIndex());
         /**
@@ -661,7 +661,7 @@ public class DLedgerEntryPusher {
                 }
 
                 /**
-                 * 查询index处对应得data数据
+                 * 查询compareIndex处对应得data数据
                  */
                 DLedgerEntry entry = dLedgerStore.get(compareIndex);
                 PreConditions.check(entry != null, DLedgerResponseCode.INTERNAL_ERROR, "compareIndex=%d", compareIndex);
@@ -692,7 +692,7 @@ public class DLedgerEntryPusher {
                      */
                     if (compareIndex == response.getEndIndex()) {
                         /**
-                         * follower存储的最后一条消息等于当前leader的compareIndex
+                         * follower存储的最后一条消息等于当前leader的compareIndex处的数据
                          */
                         changeState(compareIndex, PushEntryRequest.Type.APPEND);
                         break;
@@ -929,6 +929,9 @@ public class DLedgerEntryPusher {
                 long index = dLedgerStore.truncate(request.getEntry(), request.getTerm(), request.getLeaderId());
                 PreConditions.check(index == truncateIndex, DLedgerResponseCode.INCONSISTENT_STATE);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
+                /**
+                 * 修改CommittedIndex
+                 */
                 dLedgerStore.updateCommittedIndex(request.getTerm(), request.getCommitIndex());
             } catch (Throwable t) {
                 logger.error("[HandleDoTruncate] truncateIndex={}", truncateIndex, t);

@@ -107,9 +107,15 @@ public class AppendAndGetTest extends ServerTestHarness {
     public void testThressServerInFile() throws Exception {
         String group = UUID.randomUUID().toString();
         String peers = "n0-localhost:10006;n1-localhost:10007;n2-localhost:10008";
+        /**
+         * 服务端
+         */
         DLedgerServer dLedgerServer0 = launchServer(group, peers, "n0", "n1", DLedgerConfig.FILE);
         DLedgerServer dLedgerServer1 = launchServer(group, peers, "n1", "n1", DLedgerConfig.FILE);
         DLedgerServer dLedgerServer2 = launchServer(group, peers, "n2", "n1", DLedgerConfig.FILE);
+        /**
+         * 客户端
+         */
         DLedgerClient dLedgerClient = launchClient(group, peers);
         for (int i = 0; i < 10; i++) {
             AppendEntryResponse appendEntryResponse = dLedgerClient.append(("HelloThreeServerInFile" + i).getBytes());
