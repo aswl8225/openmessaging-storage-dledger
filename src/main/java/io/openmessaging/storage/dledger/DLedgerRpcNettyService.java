@@ -318,7 +318,7 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 break;
             }
             /**
-             * follower接受leader推送得消息
+             * follower接受leader推送得消息  COMPARE ---- TRUNCATE ---- APPEND ---- COMMIT
              */
             case PUSH: {
                 PushEntryRequest pushEntryRequest = JSON.parseObject(request.getBody(), PushEntryRequest.class);

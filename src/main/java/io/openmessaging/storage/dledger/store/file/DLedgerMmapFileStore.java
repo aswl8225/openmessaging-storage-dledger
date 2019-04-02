@@ -601,7 +601,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 PreConditions.check(dataFileList.rebuildWithPos(truncatePos), DLedgerResponseCode.DISK_ERROR, "rebuild data truncatePos=%d", truncatePos);
             }
             /**
-             * 不一致   则在当前truncatePos处写入dataBuffer
+             * 不一致   则在当前truncatePos处写入dataBuffer（leader传入）
              */
             if (!existedEntry) {
                 long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());
@@ -769,6 +769,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             //If the node fall behind too much, the committedIndex will be larger than enIndex.
             newCommittedIndex = endIndex;
         }
+        /**
+         * 获取newCommittedIndex处的data数据
+         */
         DLedgerEntry dLedgerEntry = get(newCommittedIndex);
         PreConditions.check(dLedgerEntry != null, DLedgerResponseCode.DISK_ERROR);
         this.committedIndex = newCommittedIndex;

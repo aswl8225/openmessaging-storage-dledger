@@ -149,7 +149,7 @@ public class DLedgerEntryPusher {
     }
 
     /**
-     * 更新peerWaterMarksByTerm
+     * 更新peerWaterMarksByTerm   更新term&peerId对应的index
      * @param term
      * @param peerId
      * @param index
@@ -487,7 +487,16 @@ public class DLedgerEntryPusher {
                 DLedgerUtils.sleep(quota.leftNow());
             }
         }
+
+        /**
+         * 执行append操作
+         * @param index
+         * @throws Exception
+         */
         private void doAppendInner(long index) throws Exception {
+            /**
+             * 获得index处data数据
+             */
             DLedgerEntry entry = dLedgerStore.get(index);
             PreConditions.check(entry != null, DLedgerResponseCode.UNKNOWN, "writeIndex=%d", index);
             checkQuotaAndWait(entry);
@@ -537,6 +546,10 @@ public class DLedgerEntryPusher {
             }
         }
 
+        /**
+         * append操作
+         * @throws Exception
+         */
         private void doAppend() throws Exception {
             while (true) {
                 if (!checkAndFreshState()) {
@@ -550,6 +563,9 @@ public class DLedgerEntryPusher {
                     doCheckAppendResponse();
                     break;
                 }
+                /**
+                 * 缓存过大时  删除缓存
+                 */
                 if (pendingMap.size() >= maxPendingSize || (DLedgerUtils.elapsed(lastCheckLeakTimeMs) > 1000)) {
                     long peerWaterMark = getPeerWaterMark(term, peerId);
                     for (Long index : pendingMap.keySet()) {
@@ -563,6 +579,9 @@ public class DLedgerEntryPusher {
                     doCheckAppendResponse();
                     break;
                 }
+                /**
+                 *
+                 */
                 doAppendInner(writeIndex);
                 writeIndex++;
             }
