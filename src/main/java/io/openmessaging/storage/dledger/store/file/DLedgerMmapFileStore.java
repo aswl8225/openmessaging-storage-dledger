@@ -646,6 +646,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         PreConditions.check(!isDiskFull, DLedgerResponseCode.DISK_FULL);
         ByteBuffer dataBuffer = localEntryBuffer.get();
         ByteBuffer indexBuffer = localIndexBuffer.get();
+        /**
+         * 将entry存储到byteBuffer
+         */
         DLedgerEntryCoder.encode(entry, dataBuffer);
         int entrySize = dataBuffer.remaining();
         synchronized (memberState) {
@@ -654,16 +657,26 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             PreConditions.check(nextIndex == entry.getIndex(), DLedgerResponseCode.INCONSISTENT_INDEX, null);
             PreConditions.check(leaderTerm == memberState.currTerm(), DLedgerResponseCode.INCONSISTENT_TERM, null);
             PreConditions.check(leaderId.equals(memberState.getLeaderId()), DLedgerResponseCode.INCONSISTENT_LEADER, null);
+            /**
+             * 写入data数据
+             */
             long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());
             PreConditions.check(dataPos == entry.getPos(), DLedgerResponseCode.DISK_ERROR, "%d != %d", dataPos, entry.getPos());
+            /**
+             * 写入index数据
+             */
             DLedgerEntryCoder.encodeIndex(dataPos, entrySize, entry.getMagic(), entry.getIndex(), entry.getTerm(), indexBuffer);
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
+
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
             ledgerEndTerm = memberState.currTerm();
             ledgerEndIndex = entry.getIndex();
             if (ledgerBeginIndex == -1) {
                 ledgerBeginIndex = ledgerEndIndex;
             }
+            /**
+             * 更新MemberState的ledgerEndIndex和ledgerEndTerm
+             */
             updateLedgerEndIndexAndTerm();
             return entry;
         }
@@ -748,7 +761,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     }
 
     /**
-     * 修改CommittedIndex
+     * 每次push    leader都会上送CommittedIndex   以供follower修改CommittedIndex
      * @param term
      * @param newCommittedIndex
      */

@@ -419,6 +419,7 @@ public class DLedgerEntryPusher {
         private long term = -1;
         private String leaderId = null;
         private long lastCheckLeakTimeMs = System.currentTimeMillis();
+        /**ConcurrentMap<index, timestamp>**/
         private ConcurrentMap<Long, Long> pendingMap = new ConcurrentHashMap<>();
         private Quota quota = new Quota(dLedgerConfig.getPeerPushQuota());
 
@@ -467,6 +468,9 @@ public class DLedgerEntryPusher {
             request.setTerm(term);
             request.setEntry(entry);
             request.setType(target);
+            /**
+             * 每次向follower发送的push请求    都会将当前leader端的commitindex传递过去   让follower来同步
+             */
             request.setCommitIndex(dLedgerStore.getCommittedIndex());
             return request;
         }
@@ -808,7 +812,7 @@ public class DLedgerEntryPusher {
     private class EntryHandler extends ShutdownAbleThread {
 
         private long lastCheckFastForwardTimeMs = System.currentTimeMillis();
-
+        /**ConcurrentMap<index, Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>>**/
         ConcurrentMap<Long, Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>> writeRequestMap = new ConcurrentHashMap<>();
         BlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>> compareOrTruncateRequests = new ArrayBlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>>(100);
 
@@ -831,6 +835,9 @@ public class DLedgerEntryPusher {
                 case APPEND:
                     PreConditions.check(request.getEntry() != null, DLedgerResponseCode.UNEXPECTED_ARGUMENT);
                     long index = request.getEntry().getIndex();
+                    /**
+                     * 注入writeRequestMap  等待EntryHandler的doWork调用
+                     */
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> old = writeRequestMap.putIfAbsent(index, new Pair<>(request, future));
                     if (old != null) {
                         logger.warn("[MONITOR]The index {} has already existed with {} and curr is {}", index, old.getKey().baseInfo(), request.baseInfo());
@@ -838,12 +845,18 @@ public class DLedgerEntryPusher {
                     }
                     break;
                 case COMMIT:
+                    /**
+                     * 注入compareOrTruncateRequests  等待EntryHandler的doWork调用
+                     */
                     compareOrTruncateRequests.put(new Pair<>(request, future));
                     break;
                 case COMPARE:
                 case TRUNCATE:
                     PreConditions.check(request.getEntry() != null, DLedgerResponseCode.UNEXPECTED_ARGUMENT);
                     writeRequestMap.clear();
+                    /**
+                     * 注入compareOrTruncateRequests  等待EntryHandler的doWork调用
+                     */
                     compareOrTruncateRequests.put(new Pair<>(request, future));
                     break;
                 default:
@@ -873,13 +886,25 @@ public class DLedgerEntryPusher {
             return response;
         }
 
+        /**
+         * follower处理append
+         * @param writeIndex
+         * @param request
+         * @param future
+         */
         private void handleDoAppend(long writeIndex, PushEntryRequest request,
             CompletableFuture<PushEntryResponse> future) {
             try {
                 PreConditions.check(writeIndex == request.getEntry().getIndex(), DLedgerResponseCode.INCONSISTENT_STATE);
+                /**
+                 * appendAsFollower
+                 */
                 DLedgerEntry entry = dLedgerStore.appendAsFollower(request.getEntry(), request.getTerm(), request.getLeaderId());
                 PreConditions.check(entry.getIndex() == writeIndex, DLedgerResponseCode.INCONSISTENT_STATE);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
+                /**
+                 * 每次push    leader都会上送CommittedIndex   以供follower修改CommittedIndex
+                 */
                 dLedgerStore.updateCommittedIndex(request.getTerm(), request.getCommitIndex());
             } catch (Throwable t) {
                 logger.error("[HandleDoWrite] writeIndex={}", writeIndex, t);
@@ -920,6 +945,9 @@ public class DLedgerEntryPusher {
             try {
                 PreConditions.check(committedIndex == request.getCommitIndex(), DLedgerResponseCode.UNKNOWN);
                 PreConditions.check(request.getType() == PushEntryRequest.Type.COMMIT, DLedgerResponseCode.UNKNOWN);
+                /**
+                 * 每次push    leader都会上送CommittedIndex   以供follower修改CommittedIndex
+                 */
                 dLedgerStore.updateCommittedIndex(request.getTerm(), committedIndex);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
             } catch (Throwable t) {
@@ -949,7 +977,7 @@ public class DLedgerEntryPusher {
                 PreConditions.check(index == truncateIndex, DLedgerResponseCode.INCONSISTENT_STATE);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
                 /**
-                 * 修改CommittedIndex
+                 * 每次push    leader都会上送CommittedIndex   以供follower修改CommittedIndex
                  */
                 dLedgerStore.updateCommittedIndex(request.getTerm(), request.getCommitIndex());
             } catch (Throwable t) {
@@ -973,10 +1001,17 @@ public class DLedgerEntryPusher {
             if (writeRequestMap.isEmpty()) {
                 return;
             }
+            /**
+             * writeRequestMap不为空
+             * 即writeRequestMap中的值不连续   有些leader推送过来的对象没有存储到writeRequestMap
+             */
             long minFastForwardIndex = Long.MAX_VALUE;
             for (Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair : writeRequestMap.values()) {
                 long index = pair.getKey().getEntry().getIndex();
                 //Fall behind
+                /**
+                 * 删除writeRequestMap中   小于等于endIndex的数据
+                 */
                 if (index <= endIndex) {
                     try {
                         DLedgerEntry local = dLedgerStore.get(index);
@@ -991,6 +1026,9 @@ public class DLedgerEntryPusher {
                     continue;
                 }
                 //Just OK
+                /**
+                 * 刚刚好有下一个entry到达   退出方法   等待下次dowork处理append
+                 */
                 if (index ==  endIndex + 1) {
                     //The next entry is coming, just return
                     return;
@@ -1000,10 +1038,16 @@ public class DLedgerEntryPusher {
                 if (!future.isTimeOut()) {
                     continue;
                 }
+                /**
+                 * future已经超时   需要返回给leader响应
+                 *
+                 * minFastForwardIndex的值为future已经超时且最小的一个   因为下个循环中的index值一定比当前的index值大
+                 */
                 if (index < minFastForwardIndex) {
                     minFastForwardIndex = index;
                 }
             }
+            //for 结束
             if (minFastForwardIndex == Long.MAX_VALUE) {
                 return;
             }
@@ -1012,6 +1056,9 @@ public class DLedgerEntryPusher {
                 return;
             }
             logger.warn("[PushFastForward] ledgerEndIndex={} entryIndex={}", endIndex, minFastForwardIndex);
+            /**
+             * 返回响应   错误码为INCONSISTENT_STATE
+             */
             pair.getValue().complete(buildResponse(pair.getKey(), DLedgerResponseCode.INCONSISTENT_STATE.getCode()));
         }
 
@@ -1051,12 +1098,21 @@ public class DLedgerEntryPusher {
                      */
                     long nextIndex = dLedgerStore.getLedgerEndIndex() + 1;
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair = writeRequestMap.remove(nextIndex);
+                    /**
+                     * writeRequestMap中没有index对应的value
+                     */
                     if (pair == null) {
+                        /**
+                         * 处理异常的future
+                         */
                         checkAbnormalFuture(dLedgerStore.getLedgerEndIndex());
                         waitForRunning(1);
                         return;
                     }
                     PushEntryRequest request = pair.getKey();
+                    /**
+                     * 处理append
+                     */
                     handleDoAppend(nextIndex, request, pair.getValue());
                 }
             } catch (Throwable t) {
