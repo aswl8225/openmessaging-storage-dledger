@@ -55,6 +55,7 @@ public class DLedgerEntryPusher {
 
     /**Map<term, ConcurrentMap<peerId, index>>**/
     private Map<Long, ConcurrentMap<String, Long>> peerWaterMarksByTerm = new ConcurrentHashMap<>();
+    /**Map<term, ConcurrentMap<index, TimeoutFuture<AppendEntryResponse>>>**/
     private Map<Long, ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>>> pendingAppendResponsesByTerm = new ConcurrentHashMap<>();
 
     private EntryHandler entryHandler = new EntryHandler(logger);
@@ -419,7 +420,10 @@ public class DLedgerEntryPusher {
         private long term = -1;
         private String leaderId = null;
         private long lastCheckLeakTimeMs = System.currentTimeMillis();
-        /**ConcurrentMap<index, timestamp>**/
+        /**
+         * leader向follower推送后   等待响应得缓存集合
+         * ConcurrentMap<index, timestamp>
+         */
         private ConcurrentMap<Long, Long> pendingMap = new ConcurrentHashMap<>();
         private Quota quota = new Quota(dLedgerConfig.getPeerPushQuota());
 
@@ -475,6 +479,10 @@ public class DLedgerEntryPusher {
             return request;
         }
 
+        /**
+         *
+         * @param entry
+         */
         private void checkQuotaAndWait(DLedgerEntry entry) {
             if (dLedgerStore.getLedgerEndIndex() - entry.getIndex() <= maxPendingSize) {
                 return;
@@ -493,7 +501,7 @@ public class DLedgerEntryPusher {
         }
 
         /**
-         * 执行append操作
+         * 向follower推送append
          * @param index
          * @throws Exception
          */
@@ -505,7 +513,13 @@ public class DLedgerEntryPusher {
             PreConditions.check(entry != null, DLedgerResponseCode.UNKNOWN, "writeIndex=%d", index);
             checkQuotaAndWait(entry);
             PushEntryRequest request = buildPushRequest(entry, PushEntryRequest.Type.APPEND);
+            /**
+             * 向follower推送append
+             */
             CompletableFuture<PushEntryResponse> responseFuture = dLedgerRpcService.push(request);
+            /**
+             * 等待follower反馈得缓存
+             */
             pendingMap.put(index, System.currentTimeMillis());
             responseFuture.whenComplete((x, ex) -> {
                 try {
@@ -513,8 +527,17 @@ public class DLedgerEntryPusher {
                     DLedgerResponseCode responseCode = DLedgerResponseCode.valueOf(x.getCode());
                     switch (responseCode) {
                         case SUCCESS:
+                            /**
+                             * 移除缓存
+                             */
                             pendingMap.remove(x.getIndex());
+                            /**
+                             * 更新peerWaterMarksByTerm
+                             */
                             updatePeerWaterMark(x.getTerm(), peerId, x.getIndex());
+                            /**
+                             * 唤醒QuorumAckChecker
+                             */
                             quorumAckChecker.wakeup();
                             break;
                         case INCONSISTENT_STATE:
@@ -579,12 +602,16 @@ public class DLedgerEntryPusher {
                     }
                     lastCheckLeakTimeMs = System.currentTimeMillis();
                 }
+
+                /**
+                 *
+                 */
                 if (pendingMap.size() >= maxPendingSize) {
                     doCheckAppendResponse();
                     break;
                 }
                 /**
-                 *
+                 * 向follower推送append
                  */
                 doAppendInner(writeIndex);
                 writeIndex++;
