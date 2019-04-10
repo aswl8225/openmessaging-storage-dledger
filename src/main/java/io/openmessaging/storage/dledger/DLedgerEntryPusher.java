@@ -30,6 +30,8 @@ import io.openmessaging.storage.dledger.utils.DLedgerUtils;
 import io.openmessaging.storage.dledger.utils.Pair;
 import io.openmessaging.storage.dledger.utils.PreConditions;
 import io.openmessaging.storage.dledger.utils.Quota;
+
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -308,18 +310,35 @@ public class DLedgerEntryPusher {
                 }
                 Map<String, Long> peerWaterMarks = peerWaterMarksByTerm.get(currTerm);
 
+                /**
+                 * 综合leader和followers的回应   判断之前的append操作是否得到超过半数+1节点的成功回应
+                 * 如果有则更新当前CommittedIndex
+                 */
                 long quorumIndex = -1;
+                /**
+                 * 循环集群内节点目前写入的index
+                 */
                 for (Long index : peerWaterMarks.values()) {
+//                    System.out.println("index======"+index);
                     int num = 0;
                     for (Long another : peerWaterMarks.values()) {
+//                        System.out.println("another======"+another);
                         if (another >= index) {
                             num++;
                         }
                     }
+                    /**
+                     * 是否获得超过半数+1节点的成功回应
+                     */
                     if (memberState.isQuorum(num) && index > quorumIndex) {
+//                        System.out.println(index + "," +quorumIndex);
                         quorumIndex = index;
                     }
                 }
+
+                /**
+                 * 修改CommittedIndex
+                 */
                 dLedgerStore.updateCommittedIndex(currTerm, quorumIndex);
                 ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>> responses = pendingAppendResponsesByTerm.get(currTerm);
                 boolean needCheck = false;
