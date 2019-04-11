@@ -340,6 +340,10 @@ public class DLedgerEntryPusher {
                  * 修改CommittedIndex
                  */
                 dLedgerStore.updateCommittedIndex(currTerm, quorumIndex);
+
+                /**
+                 * 轮询待响应客户端的请求
+                 */
                 ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>> responses = pendingAppendResponsesByTerm.get(currTerm);
                 boolean needCheck = false;
                 int ackNum = 0;
@@ -351,6 +355,9 @@ public class DLedgerEntryPusher {
                                 needCheck = lastQuorumIndex != -1 && lastQuorumIndex != quorumIndex && i != lastQuorumIndex;
                                 break;
                             } else if (!future.isDone()) {
+                                /**
+                                 * 给客户端成功响应
+                                 */
                                 AppendEntryResponse response = new AppendEntryResponse();
                                 response.setGroup(memberState.getGroup());
                                 response.setTerm(currTerm);
@@ -366,12 +373,22 @@ public class DLedgerEntryPusher {
                     }
                 }
 
+                /**
+                 * 没有给客户端响应  即小于quorumIndex的都已经得到响应
+                 * 则检查大于quorumIndex  是否存在超时现象
+                 */
                 if (ackNum == 0) {
                     for (long i = quorumIndex + 1; i < Integer.MAX_VALUE; i++) {
                         TimeoutFuture<AppendEntryResponse> future = responses.get(i);
                         if (future == null) {
+                            /**
+                             * 为空退出
+                             */
                             break;
                         } else if (future.isTimeOut()) {
+                            /**
+                             * 超时响应
+                             */
                             AppendEntryResponse response = new AppendEntryResponse();
                             response.setGroup(memberState.getGroup());
                             response.setCode(DLedgerResponseCode.WAIT_QUORUM_ACK_TIMEOUT.getCode());
@@ -380,12 +397,18 @@ public class DLedgerEntryPusher {
                             response.setLeaderId(memberState.getSelfId());
                             future.complete(response);
                         } else {
+                            /**
+                             * 未超时  退出
+                             */
                             break;
                         }
                     }
                     waitForRunning(1);
                 }
 
+                /**
+                 * ？？？？？
+                 */
                 if (DLedgerUtils.elapsed(lastCheckLeakTimeMs) > 1000 || needCheck) {
                     updatePeerWaterMark(currTerm, memberState.getSelfId(), dLedgerStore.getLedgerEndIndex());
                     for (Map.Entry<Long, TimeoutFuture<AppendEntryResponse>> futureEntry : responses.entrySet()) {
