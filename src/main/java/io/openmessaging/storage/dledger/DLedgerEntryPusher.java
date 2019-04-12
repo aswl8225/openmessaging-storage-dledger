@@ -376,6 +376,7 @@ public class DLedgerEntryPusher {
                 /**
                  * 没有给客户端响应  即小于quorumIndex的都已经得到响应
                  * 则检查大于quorumIndex  是否存在超时现象
+                 * 直到遇到为null 或者不超时为止
                  */
                 if (ackNum == 0) {
                     for (long i = quorumIndex + 1; i < Integer.MAX_VALUE; i++) {
