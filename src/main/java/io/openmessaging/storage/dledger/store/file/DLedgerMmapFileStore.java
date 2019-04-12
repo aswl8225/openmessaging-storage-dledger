@@ -839,7 +839,13 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         @Override public void doWork() {
             try {
                 long start = System.currentTimeMillis();
+                /**
+                 * data数据刷盘
+                 */
                 DLedgerMmapFileStore.this.dataFileList.flush(0);
+                /**
+                 * index数据刷盘
+                 */
                 DLedgerMmapFileStore.this.indexFileList.flush(0);
                 if (DLedgerUtils.elapsed(start) > 500) {
                     logger.info("Flush data cost={} ms", DLedgerUtils.elapsed(start));

@@ -306,6 +306,9 @@ public class MmapFileList {
                  */
                 if (mappedFile.appendMessage(byteBuffer.array())) {
                     //need to set the wrote position
+                    /**
+                     * 当前文件设置全部写满
+                     */
                     mappedFile.setWrotePosition(mappedFile.getFileSize());
                 } else {
                     logger.error("Append blank error for {}", storePath);
@@ -699,6 +702,11 @@ public class MmapFileList {
         return deleteCount;
     }
 
+    /**
+     * 数据刷盘
+     * @param flushLeastPages
+     * @return
+     */
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
         MmapFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);

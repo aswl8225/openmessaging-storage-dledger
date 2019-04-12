@@ -76,7 +76,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
         dLedgerRpcService = new DLedgerRpcNettyService(this);
 
         /**
-         *
+         * 节点内部通讯及计算
          */
         dLedgerEntryPusher = new DLedgerEntryPusher(dLedgerConfig, memberState, dLedgerStore, dLedgerRpcService);
 

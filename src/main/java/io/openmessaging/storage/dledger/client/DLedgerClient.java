@@ -82,13 +82,22 @@ public class DLedgerClient {
             appendEntryRequest.setRemoteId(leaderId);
             appendEntryRequest.setBody(body);
             /**
-             * 写入数据
+             * append数据
              */
             AppendEntryResponse response = dLedgerClientRpcService.append(appendEntryRequest).get();
+            /**
+             * 发送的节点不是leader  则重新获取leader  并再次发送
+             */
             if (response.getCode() == DLedgerResponseCode.NOT_LEADER.getCode()) {
+                /**
+                 * 获得leader
+                 */
                 waitOnUpdatingMetadata(1500, true);
                 if (leaderId != null) {
                     appendEntryRequest.setRemoteId(leaderId);
+                    /**
+                     * append数据
+                     */
                     response = dLedgerClientRpcService.append(appendEntryRequest).get();
                 }
             }
