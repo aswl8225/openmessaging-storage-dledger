@@ -55,7 +55,10 @@ public class DLedgerEntryPusher {
 
     private DLedgerRpcService dLedgerRpcService;
 
-    /**Map<term, ConcurrentMap<peerId, index>>**/
+    /**
+     * Map<term, ConcurrentMap<peerId, index>>
+     * 当前term下   peerId存储的最后消息的index
+     */
     private Map<Long, ConcurrentMap<String, Long>> peerWaterMarksByTerm = new ConcurrentHashMap<>();
     /**Map<term, ConcurrentMap<index, TimeoutFuture<AppendEntryResponse>>>**/
     private Map<Long, ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>>> pendingAppendResponsesByTerm = new ConcurrentHashMap<>();
@@ -598,6 +601,10 @@ public class DLedgerEntryPusher {
             lastPushCommitTimeMs = System.currentTimeMillis();
         }
 
+        /**
+         * leader向follower推送COMMIT
+         * @throws Exception
+         */
         private void doCommit() throws Exception {
             if (DLedgerUtils.elapsed(lastPushCommitTimeMs) > 1000) {
                 PushEntryRequest request = buildPushRequest(null, PushEntryRequest.Type.COMMIT);
@@ -607,9 +614,22 @@ public class DLedgerEntryPusher {
             }
         }
 
+        /**
+         * 如果缓存中的数据超时  则马上执行doAppendInner操作
+         * @throws Exception
+         */
         private void doCheckAppendResponse() throws Exception {
+            /**
+             * 获取当前term   peerId存储的最大index
+             */
             long peerWaterMark = getPeerWaterMark(term, peerId);
+            /**
+             * 获取缓存中peerWaterMark+1对应的消息的存储时间
+             */
             Long sendTimeMs = pendingMap.get(peerWaterMark + 1);
+            /**
+             * 超时  则马上执行doAppendInner操作
+             */
             if (sendTimeMs != null && System.currentTimeMillis() - sendTimeMs > dLedgerConfig.getMaxPushTimeOutMs()) {
                 logger.warn("[Push-{}]Retry to push entry at {}", peerId, peerWaterMark + 1);
                 doAppendInner(peerWaterMark + 1);
@@ -628,7 +648,15 @@ public class DLedgerEntryPusher {
                 if (type.get() != PushEntryRequest.Type.APPEND) {
                     break;
                 }
+
+                /**
+                 *
+                 */
                 if (writeIndex > dLedgerStore.getLedgerEndIndex()) {
+//                    System.out.println(writeIndex+","+dLedgerStore.getLedgerEndIndex());
+                    /**
+                     * 向follower发起commit请求
+                     */
                     doCommit();
                     doCheckAppendResponse();
                     break;
@@ -647,7 +675,7 @@ public class DLedgerEntryPusher {
                 }
 
                 /**
-                 *
+                 * 缓存超过最大值   doAppendInner
                  */
                 if (pendingMap.size() >= maxPendingSize) {
                     doCheckAppendResponse();
@@ -1010,13 +1038,20 @@ public class DLedgerEntryPusher {
             return future;
         }
 
+        /**
+         * COMMIT
+         * @param committedIndex
+         * @param request
+         * @param future
+         * @return
+         */
         private CompletableFuture<PushEntryResponse> handleDoCommit(long committedIndex, PushEntryRequest request,
             CompletableFuture<PushEntryResponse> future) {
             try {
                 PreConditions.check(committedIndex == request.getCommitIndex(), DLedgerResponseCode.UNKNOWN);
                 PreConditions.check(request.getType() == PushEntryRequest.Type.COMMIT, DLedgerResponseCode.UNKNOWN);
                 /**
-                 * 每次push    leader都会上送CommittedIndex   以供follower修改CommittedIndex
+                 * leader上送CommittedIndex   以供follower修改CommittedIndex
                  */
                 dLedgerStore.updateCommittedIndex(request.getTerm(), committedIndex);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));

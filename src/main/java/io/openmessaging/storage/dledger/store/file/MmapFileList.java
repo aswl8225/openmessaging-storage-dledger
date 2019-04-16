@@ -720,6 +720,11 @@ public class MmapFileList {
         return result;
     }
 
+    /**
+     *
+     * @param commitLeastPages
+     * @return
+     */
     public boolean commit(final int commitLeastPages) {
         boolean result = true;
         MmapFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);

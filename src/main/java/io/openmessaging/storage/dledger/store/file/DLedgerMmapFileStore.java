@@ -690,6 +690,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
     }
 
+    /**
+     * 持久化CheckPoint文件
+     */
     void persistCheckPoint() {
         try {
             Properties properties = new Properties();
@@ -702,6 +705,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
     }
 
+    /**
+     * 读取CheckPoint文件到Properties
+     * @return
+     */
     Properties loadCheckPoint() {
         try {
             String data = IOUtils.file2String(dLedgerConfig.getDefaultPath() + File.separator + CHECK_POINT_FILE);
@@ -852,6 +859,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 }
 
                 if (DLedgerUtils.elapsed(lastCheckPointTimeMs) > dLedgerConfig.getCheckPointInterval()) {
+                    /**
+                     * 持久化CheckPoint文件
+                     */
                     persistCheckPoint();
                     lastCheckPointTimeMs = System.currentTimeMillis();
                 }

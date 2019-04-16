@@ -219,15 +219,27 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
      */
     @Override
     public int flush(final int flushLeastPages) {
+        /**
+         * 是否满足刷盘条件
+         */
         if (this.isAbleToFlush(flushLeastPages)) {
             if (this.hold()) {
+                /**
+                 * 获取写入的位置  wrotePosition
+                 */
                 int value = getReadPosition();
                 try {
+                    /**
+                     * 刷盘
+                     */
                     this.mappedByteBuffer.force();
                 } catch (Throwable e) {
                     logger.error("Error occurred when force data to disk.", e);
                 }
 
+                /**
+                 * 更新flushedPosition
+                 */
                 this.flushedPosition.set(value);
                 this.release();
             } else {
@@ -238,20 +250,36 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         return this.getFlushedPosition();
     }
 
+    /**
+     * commit操作   供rmq使用
+     * @param commitLeastPages the least pages to commit
+     * @return
+     */
     @Override
     public int commit(final int commitLeastPages) {
         this.committedPosition.set(this.wrotePosition.get());
         return this.committedPosition.get();
     }
 
+    /**
+     * 是否可以刷盘
+     * @param flushLeastPages
+     * @return
+     */
     private boolean isAbleToFlush(final int flushLeastPages) {
         int flushedPos = this.flushedPosition.get();
         int writePos = getReadPosition();
 
+        /**
+         * 件是否已经写满
+         */
         if (this.isFull()) {
             return writePos > flushedPos;
         }
 
+        /**
+         * linux   pagesize
+         */
         if (flushLeastPages > 0) {
             return ((writePos / OS_PAGE_SIZE) - (flushedPos / OS_PAGE_SIZE)) >= flushLeastPages;
         }
@@ -277,6 +305,10 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         this.startPosition.set(startPosition);
     }
 
+    /**
+     * 文件是否已经写满
+     * @return
+     */
     @Override
     public boolean isFull() {
         return this.fileSize == this.wrotePosition.get();
