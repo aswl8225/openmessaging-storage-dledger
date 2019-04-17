@@ -111,8 +111,16 @@ public class DLedgerClient {
         }
     }
 
+    /**
+     * 获取消息
+     * @param index
+     * @return
+     */
     public GetEntriesResponse get(long index) {
         try {
+            /**
+             * 获取leader
+             */
             waitOnUpdatingMetadata(1500, false);
             if (leaderId == null) {
                 GetEntriesResponse response = new GetEntriesResponse();
@@ -124,11 +132,21 @@ public class DLedgerClient {
             request.setGroup(group);
             request.setRemoteId(leaderId);
             request.setBeginIndex(index);
+            /**
+             * 获取消息
+             */
             GetEntriesResponse response = dLedgerClientRpcService.get(request).get();
+
+            /**
+             * 请求的节点不是leader   则根据返回结果   向新leader发送请求
+             */
             if (response.getCode() == DLedgerResponseCode.NOT_LEADER.getCode()) {
                 waitOnUpdatingMetadata(1500, true);
                 if (leaderId != null) {
                     request.setRemoteId(leaderId);
+                    /**
+                     * 再次获取消息
+                     */
                     response = dLedgerClientRpcService.get(request).get();
                 }
             }
@@ -176,7 +194,7 @@ public class DLedgerClient {
     /**
      * 客户端是否获得当前集群中的leader
      * @param maxWaitMs
-     * @param needFresh  重新获取leader
+     * @param needFresh  true  设置leader为null，重新获取leader
      */
     private synchronized void waitOnUpdatingMetadata(long maxWaitMs, boolean needFresh) {
         if (needFresh) {

@@ -307,6 +307,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 }, futureExecutor);
                 break;
             }
+            /**
+             * 获取消息
+             */
             case GET: {
                 GetEntriesRequest getEntriesRequest = JSON.parseObject(request.getBody(), GetEntriesRequest.class);
                 CompletableFuture<GetEntriesResponse> future = handleGet(getEntriesRequest);
@@ -397,6 +400,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return dLedgerServer.handleAppend(request);
     }
 
+    /**
+     * 获取消息
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override public CompletableFuture<GetEntriesResponse> handleGet(GetEntriesRequest request) throws Exception {
         return dLedgerServer.handleGet(request);
     }

@@ -65,10 +65,21 @@ public class DLedgerEntryCoder {
         byteBuffer.flip();
     }
 
+    /**
+     * 将ByteBuffer中的数据写入DLedgerEntry
+     * @param byteBuffer
+     * @return
+     */
     public static DLedgerEntry decode(ByteBuffer byteBuffer) {
         return decode(byteBuffer, true);
     }
 
+    /**
+     * 将ByteBuffer中的数据写入DLedgerEntry
+     * @param byteBuffer
+     * @param readBody   是否读取消息内容
+     * @return
+     */
     public static DLedgerEntry decode(ByteBuffer byteBuffer, boolean readBody) {
         DLedgerEntry entry = new DLedgerEntry();
         entry.setMagic(byteBuffer.getInt());

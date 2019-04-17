@@ -254,12 +254,21 @@ public class DLedgerServer implements DLedgerProtocolHander {
         }
     }
 
+    /**
+     * 获取消息
+     * @param request
+     * @return
+     * @throws IOException
+     */
     @Override
     public CompletableFuture<GetEntriesResponse> handleGet(GetEntriesRequest request) throws IOException {
         try {
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
             PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER);
+            /**
+             * 获取消息
+             */
             DLedgerEntry entry = dLedgerStore.get(request.getBeginIndex());
             GetEntriesResponse response = new GetEntriesResponse();
             response.setGroup(memberState.getGroup());
