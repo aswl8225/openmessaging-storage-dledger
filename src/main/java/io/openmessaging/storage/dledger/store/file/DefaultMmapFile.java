@@ -268,6 +268,10 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
      */
     private boolean isAbleToFlush(final int flushLeastPages) {
         int flushedPos = this.flushedPosition.get();
+
+        /**
+         * 获取文件写入位置
+         */
         int writePos = getReadPosition();
 
         /**

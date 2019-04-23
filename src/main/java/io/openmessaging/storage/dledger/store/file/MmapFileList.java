@@ -709,8 +709,14 @@ public class MmapFileList {
      */
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
+        /**
+         * 根据this.flushedWhere  返回对应的文件   如果没有对应的文件  则返回第一个文件
+         */
         MmapFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);
         if (mappedFile != null) {
+            /**
+             * 刷盘
+             */
             int offset = mappedFile.flush(flushLeastPages);
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.flushedWhere;
@@ -747,6 +753,9 @@ public class MmapFileList {
      */
     public MmapFile findMappedFileByOffset(final long offset, final boolean returnFirstOnNotFound) {
         try {
+            /**
+             * 获取文件列表中的第一个文件以及最后一个文件
+             */
             MmapFile firstMappedFile = this.getFirstMappedFile();
             MmapFile lastMappedFile = this.getLastMappedFile();
             if (firstMappedFile != null && lastMappedFile != null) {
@@ -758,13 +767,22 @@ public class MmapFileList {
                         this.mappedFileSize,
                         this.mappedFiles.size());
                 } else {
+                    /**
+                     * 获取offset在文件列表中对应文件的序号
+                     */
                     int index = (int) ((offset / this.mappedFileSize) - (firstMappedFile.getFileFromOffset() / this.mappedFileSize));
                     MmapFile targetFile = null;
                     try {
+                        /**
+                         * 根据序号获得文件
+                         */
                         targetFile = this.mappedFiles.get(index);
                     } catch (Exception ignored) {
                     }
 
+                    /**
+                     * 返回文件
+                     */
                     if (targetFile != null && offset >= targetFile.getFileFromOffset()
                         && offset < targetFile.getFileFromOffset() + this.mappedFileSize) {
                         return targetFile;
@@ -777,6 +795,9 @@ public class MmapFileList {
                         this.mappedFileSize,
                         this.mappedFiles.size());
 
+                    /**
+                     * 根据offset返回文件
+                     */
                     for (MmapFile tmpMappedFile : this.mappedFiles) {
                         if (offset >= tmpMappedFile.getFileFromOffset()
                             && offset < tmpMappedFile.getFileFromOffset() + this.mappedFileSize) {
@@ -785,6 +806,9 @@ public class MmapFileList {
                     }
                 }
 
+                /**
+                 * 返回第一个文件
+                 */
                 if (returnFirstOnNotFound) {
                     return firstMappedFile;
                 }

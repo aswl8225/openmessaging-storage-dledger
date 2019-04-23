@@ -36,6 +36,15 @@ public class ServerTestHarness extends ServerTestBase {
         return dLedgerServer;
     }
 
+    /**
+     *
+     * @param group
+     * @param peers  集群内所有节点
+     * @param selfId 当前节点
+     * @param leaderId leader节点
+     * @param storeType 文件存储位置   内存or硬盘
+     * @return
+     */
     protected synchronized DLedgerServer launchServer(String group, String peers, String selfId, String leaderId,
         String storeType) {
         DLedgerConfig config = new DLedgerConfig();

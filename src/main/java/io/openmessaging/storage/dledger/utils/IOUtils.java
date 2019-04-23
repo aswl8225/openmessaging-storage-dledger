@@ -184,6 +184,11 @@ public class IOUtils {
         return sb.toString();
     }
 
+    /**
+     * 将str解析为Properties
+     * @param str
+     * @return
+     */
     public static Properties string2Properties(final String str) {
         Properties properties = new Properties();
         try {
