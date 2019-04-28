@@ -297,7 +297,7 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 break;
             }
             /**
-             * 写入数据  只有leader接受
+             * leader接受客户端数据    写入操作
              */
             case APPEND: {
                 AppendEntryRequest appendEntryRequest = JSON.parseObject(request.getBody(), AppendEntryRequest.class);
