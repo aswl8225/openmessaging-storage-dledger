@@ -203,7 +203,7 @@ public class DLedgerEntryPusher {
          */
         updatePeerWaterMark(entry.getTerm(), memberState.getSelfId(), entry.getIndex());
         /**
-         * 集群中只有一个节点   直接返回
+         * 集群中只有一个节点   直接返回成功
          */
         if (memberState.getPeerMap().size() == 1) {
             AppendEntryResponse response = new AppendEntryResponse();
