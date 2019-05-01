@@ -818,6 +818,10 @@ public class DLedgerEntryPusher {
                         changeState(compareIndex, PushEntryRequest.Type.APPEND);
                         break;
                     } else {
+                        /**
+                         * 通常compareIndex的初始值  都为leader存储的最后一条数据
+                         * 如果不等于follower的最后一条数据  则说明follower有脏数据
+                         */
                         truncateIndex = compareIndex;
                     }
                 } else if (response.getEndIndex() < dLedgerStore.getLedgerBeginIndex()
