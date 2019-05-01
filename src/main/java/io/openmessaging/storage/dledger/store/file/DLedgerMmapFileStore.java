@@ -533,6 +533,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
              * 存储index
              */
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
+//            System.out.println(indexPos);
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
             if (logger.isDebugEnabled()) {
                 logger.info("[{}] Append as Leader {} {}", memberState.getSelfId(), entry.getIndex(), entry.getBody().length);

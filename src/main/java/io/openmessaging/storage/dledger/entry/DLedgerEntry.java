@@ -111,6 +111,11 @@ public class DLedgerEntry {
         this.pos = pos;
     }
 
+    /**
+     * 比较两者是否相等
+     * @param entry
+     * @return
+     */
     @Override
     public boolean equals(Object entry) {
         if (entry == null || !(entry instanceof DLedgerEntry)) {

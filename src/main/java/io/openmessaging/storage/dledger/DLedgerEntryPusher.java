@@ -228,7 +228,7 @@ public class DLedgerEntryPusher {
                 logger.warn("[MONITOR] get old wait at index={}", entry.getIndex());
             }
             /**
-             * 唤醒Dispatchers   向follower发送push请求
+             * 唤醒EntryDispatcher   向follower发送push请求
              */
             wakeUpDispatchers();
             return future;
@@ -813,7 +813,7 @@ public class DLedgerEntryPusher {
                      */
                     if (compareIndex == response.getEndIndex()) {
                         /**
-                         * follower存储的最后一条消息等于当前leader的compareIndex处的数据
+                         * follower存储的最后一条消息等于当前leader的compareIndex处的数据  则进行append操作
                          */
                         changeState(compareIndex, PushEntryRequest.Type.APPEND);
                         break;
@@ -976,6 +976,9 @@ public class DLedgerEntryPusher {
             response.setGroup(request.getGroup());
             response.setCode(code);
             response.setTerm(request.getTerm());
+            /**
+             * 非COMMIT交易  则返回index
+             */
             if (request.getType() != PushEntryRequest.Type.COMMIT) {
                 response.setIndex(request.getEntry().getIndex());
             }
@@ -1171,7 +1174,7 @@ public class DLedgerEntryPusher {
         public void doWork() {
             try {
                 /**
-                 * 非FOLLOWER角色
+                 * 非FOLLOWER角色   退出
                  */
                 if (!memberState.isFollower()) {
                     waitForRunning(1);
