@@ -587,6 +587,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
              * 一致则从下一条消息开始TRUNCATE   否则从当前消息TRUNCATE
              */
             long truncatePos = existedEntry ? entry.getPos() + entry.getSize() : entry.getPos();
+            /**
+             * truncate处的数据  不是follower存储的最大写入位置
+             */
             if (truncatePos != dataFileList.getMaxWrotePosition()) {
                 logger.warn("[TRUNCATE]leaderId={} index={} truncatePos={} != maxPos={}, this is usually happened on the old leader", leaderId, entry.getIndex(), truncatePos, dataFileList.getMaxWrotePosition());
             }
@@ -602,7 +605,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 PreConditions.check(dataFileList.rebuildWithPos(truncatePos), DLedgerResponseCode.DISK_ERROR, "rebuild data truncatePos=%d", truncatePos);
             }
             /**
-             * 不一致   则在当前truncatePos处写入dataBuffer（leader传入）
+             * 不一致   则在当前truncatePos处写入dataBuffer（leader传入的entry）
              */
             if (!existedEntry) {
                 long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());

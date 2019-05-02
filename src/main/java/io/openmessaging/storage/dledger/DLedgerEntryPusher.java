@@ -832,7 +832,7 @@ public class DLedgerEntryPusher {
                      Just truncate the follower.
                      */
                     /**
-                     * 这通常发生在follower崩溃了很长一段时间，而领导者删除了过期的条目
+                     * 这通常发生在follower崩溃了很长一段时间，而leader删除了过期的条目
                      */
                     truncateIndex = dLedgerStore.getLedgerBeginIndex();
                 } else if (compareIndex < response.getBeginIndex()) {

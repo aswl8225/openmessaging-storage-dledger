@@ -138,6 +138,9 @@ public class MmapFileList {
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
                 } else {
+                    /**
+                     * 删除所有FileFromOffset大于offset的文件
+                     */
                     willRemoveFiles.add(file);
                 }
             }
@@ -193,9 +196,21 @@ public class MmapFileList {
 
         for (int i = mfs.length - 1; i >= 0; i--) {
             MmapFile file = (MmapFile) mfs[i];
+            /**
+             * 文件存储的最大offset
+             */
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
+            /**
+             * 文件开始的offset小于指定的offset
+             */
             if (file.getFileFromOffset() <= offset) {
+                /**
+                 * 指定的offset小于文件存储的最大offset
+                 */
                 if (offset < fileTailOffset) {
+                    /**
+                     * 设置StartPosition
+                     */
                     file.setStartPosition((int) (offset % this.mappedFileSize));
                 } else {
                     willRemoveFiles.add(file);
@@ -203,7 +218,13 @@ public class MmapFileList {
             }
         }
 
+        /**
+         * 物理删除
+         */
         this.destroyExpiredFiles(willRemoveFiles);
+        /**
+         * 缓存中删除
+         */
         this.deleteExpiredFiles(willRemoveFiles);
     }
 
@@ -564,6 +585,9 @@ public class MmapFileList {
     public long getMinOffset() {
         MmapFile mmapFile = getFirstMappedFile();
         if (mmapFile != null) {
+            /**
+             * resetOffset方法中会设置StartPosition
+             */
             return mmapFile.getFileFromOffset() + mmapFile.getStartPosition();
         }
         return 0;

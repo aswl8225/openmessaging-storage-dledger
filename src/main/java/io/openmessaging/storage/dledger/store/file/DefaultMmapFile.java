@@ -433,10 +433,16 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
 
         if (this.isCleanupOver()) {
             try {
+                /**
+                 * 关闭fileChannel
+                 */
                 this.fileChannel.close();
                 logger.info("close file channel " + this.fileName + " OK");
 
                 long beginTime = System.currentTimeMillis();
+                /**
+                 * 删除文件
+                 */
                 boolean result = this.file.delete();
                 logger.info("delete file[REF:" + this.getRefCount() + "] " + this.fileName
                     + (result ? " OK, " : " Failed, ") + "W:" + this.getWrotePosition() + " M:"
