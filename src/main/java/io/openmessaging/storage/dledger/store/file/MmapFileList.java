@@ -209,7 +209,7 @@ public class MmapFileList {
                  */
                 if (offset < fileTailOffset) {
                     /**
-                     * 设置StartPosition
+                     * 设置StartPosition   只有resetOffset方法才会设置startPosition
                      */
                     file.setStartPosition((int) (offset % this.mappedFileSize));
                 } else {
@@ -945,6 +945,7 @@ public class MmapFileList {
         truncateOffset(pos);
         /**
          * 删除文件终止offset小于pos的文件  设置StartPosition
+         * 只有resetOffset方法才会设置startPosition
          */
         resetOffset(pos);
 

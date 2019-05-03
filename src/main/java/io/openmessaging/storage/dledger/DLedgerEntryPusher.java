@@ -57,7 +57,7 @@ public class DLedgerEntryPusher {
 
     /**
      * Map<term, ConcurrentMap<peerId, index>>
-     * 当前term下   peerId存储的最后消息的index
+     * 当前term下   peerId存储的最大消息的index   即leader得到follower成功的应答
      */
     private Map<Long, ConcurrentMap<String, Long>> peerWaterMarksByTerm = new ConcurrentHashMap<>();
     /**Map<term, ConcurrentMap<index, TimeoutFuture<AppendEntryResponse>>>**/
@@ -553,10 +553,13 @@ public class DLedgerEntryPusher {
          */
         private void doAppendInner(long index) throws Exception {
             /**
-             * 获得index处data数据
+             * 获得index处data数据   即follower没有的消息
              */
             DLedgerEntry entry = dLedgerStore.get(index);
             PreConditions.check(entry != null, DLedgerResponseCode.UNKNOWN, "writeIndex=%d", index);
+            /**
+             * ？？？？？
+             */
             checkQuotaAndWait(entry);
             PushEntryRequest request = buildPushRequest(entry, PushEntryRequest.Type.APPEND);
             /**
@@ -587,6 +590,9 @@ public class DLedgerEntryPusher {
                             quorumAckChecker.wakeup();
                             break;
                         case INCONSISTENT_STATE:
+                            /**
+                             * 失败则转入COMPARE操作
+                             */
                             logger.info("[Push-{}]Get INCONSISTENT_STATE when push index={} term={}", peerId, x.getIndex(), x.getTerm());
                             changeState(-1, PushEntryRequest.Type.COMPARE);
                             break;
@@ -667,6 +673,9 @@ public class DLedgerEntryPusher {
                 if (pendingMap.size() >= maxPendingSize || (DLedgerUtils.elapsed(lastCheckLeakTimeMs) > 1000)) {
                     long peerWaterMark = getPeerWaterMark(term, peerId);
                     for (Long index : pendingMap.keySet()) {
+                        /**
+                         * 因为peerWaterMark是成功的  所以之前的所有index都是成功的
+                         */
                         if (index < peerWaterMark) {
                             pendingMap.remove(index);
                         }
@@ -1122,10 +1131,13 @@ public class DLedgerEntryPusher {
                 long index = pair.getKey().getEntry().getIndex();
                 //Fall behind
                 /**
-                 * 删除writeRequestMap中   小于等于endIndex的数据
+                 * 删除writeRequestMap中   小于等于endIndex的数据   并向leader应答
                  */
                 if (index <= endIndex) {
                     try {
+                        /**
+                         * 比对本地和leader在index处的消息是否一致
+                         */
                         DLedgerEntry local = dLedgerStore.get(index);
                         PreConditions.check(pair.getKey().getEntry().equals(local), DLedgerResponseCode.INCONSISTENT_STATE);
                         pair.getValue().complete(buildResponse(pair.getKey(), DLedgerResponseCode.SUCCESS.getCode()));
@@ -1147,6 +1159,9 @@ public class DLedgerEntryPusher {
                 }
                 //Fast forward
                 TimeoutFuture<PushEntryResponse> future  = (TimeoutFuture<PushEntryResponse>) pair.getValue();
+                /**
+                 * 未超时  则轮询下一个
+                 */
                 if (!future.isTimeOut()) {
                     continue;
                 }
@@ -1154,6 +1169,8 @@ public class DLedgerEntryPusher {
                  * future已经超时   需要返回给leader响应
                  *
                  * minFastForwardIndex的值为future已经超时且最小的一个   因为下个循环中的index值一定比当前的index值大
+                 *
+                 * 不会再进入
                  */
                 if (index < minFastForwardIndex) {
                     minFastForwardIndex = index;
@@ -1208,7 +1225,14 @@ public class DLedgerEntryPusher {
                     /**
                      * 处理APPEND
                      */
+
+                    /**
+                     * nextIndex， 即当前follower下一个要存储的index
+                     */
                     long nextIndex = dLedgerStore.getLedgerEndIndex() + 1;
+                    /**
+                     * 缓存中是否有对应的nextIndex数据
+                     */
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair = writeRequestMap.remove(nextIndex);
                     /**
                      * writeRequestMap中没有index对应的value

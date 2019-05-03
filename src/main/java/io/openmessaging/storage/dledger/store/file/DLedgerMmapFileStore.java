@@ -449,12 +449,16 @@ public class DLedgerMmapFileStore extends DLedgerStore {
              * 获取StartPosition处的数据
              */
             ByteBuffer tmpBuffer = sbr.getByteBuffer();
+            /**
+             * 只有resetOffset方法才会设置startPosition
+             * 即因为dataFile执行过resetOffset方法   所以indexFile也要进行resetOffset方法
+             */
             tmpBuffer.position(firstFile.getStartPosition());
             tmpBuffer.getInt(); //magic
             tmpBuffer.getInt(); //size
             ledgerBeginIndex = tmpBuffer.getLong();
             /**
-             * 删除文件终止offset小于pos的文件  设置StartPosition
+             * 删除index文件最大offset小于pos的文件  设置StartPosition
              */
             indexFileList.resetOffset(ledgerBeginIndex * INDEX_UNIT_SIZE);
         } finally {
