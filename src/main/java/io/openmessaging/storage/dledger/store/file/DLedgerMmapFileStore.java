@@ -163,6 +163,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
     }
 
+    /**
+     * 主要业务在于比对data文件和index文件是否一致
+     */
     public void recover() {
         /**
          * 只执行一次
@@ -280,7 +283,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 long absolutePos = mappedFile.getFileFromOffset() + relativePos;
                 int magic = byteBuffer.getInt();
                 /**
-                 * 当前文件的有效数据已读取完毕
+                 * 当前文件的有效数据已读取完毕   则应该读取下一个文件
                  */
                 if (magic == MmapFileList.BLANK_MAGIC_CODE) {
                     processOffset = mappedFile.getFileFromOffset() + mappedFile.getFileSize();
@@ -304,6 +307,8 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 }
 
                 /**
+                 * 非BLANK_MAGIC_CODE的数据
+                 *
                  * 存储结构详见DLedgerEntry
                  */
                 int size = byteBuffer.getInt();
@@ -359,6 +364,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                         PreConditions.check(absolutePos == posFromIndex, DLedgerResponseCode.DISK_ERROR, "pos %d != %d", mappedFile.getFileFromOffset(), posFromIndex);
                     } catch (Throwable t) {
                         logger.warn("Compare data to index failed {}", mappedFile.getFileName(), t);
+                        /**
+                         * 对index文件执行truncate操作
+                         */
                         indexFileList.truncateOffset(entryIndex * INDEX_UNIT_SIZE);
                         if (indexFileList.getMaxWrotePosition() != entryIndex * INDEX_UNIT_SIZE) {
                             long truncateIndexOffset = entryIndex * INDEX_UNIT_SIZE;
@@ -395,6 +403,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
         logger.info("Recover data to the end entryIndex={} processOffset={} lastFileOffset={} cha={}",
             lastEntryIndex, processOffset, lastMappedFile.getFileFromOffset(), processOffset - lastMappedFile.getFileFromOffset());
+
+        /**
+         * processOffset所在的文件与lastMappedFile之间相差超过一个文件
+         */
         if (lastMappedFile.getFileFromOffset() - processOffset > lastMappedFile.getFileSize()) {
             logger.error("[MONITOR]The processOffset is too small, you should check it manually before truncating the data from {}", processOffset);
             System.exit(-1);
@@ -403,20 +415,37 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         ledgerEndIndex = lastEntryIndex;
         ledgerEndTerm = lastEntryTerm;
         if (lastEntryIndex != -1) {
+            /**
+             * 获取lastEntryIndex处的消息
+             */
             DLedgerEntry entry = get(lastEntryIndex);
             PreConditions.check(entry != null, DLedgerResponseCode.DISK_ERROR, "recheck get null entry");
             PreConditions.check(entry.getIndex() == lastEntryIndex, DLedgerResponseCode.DISK_ERROR, "recheck index %d != %d", entry.getIndex(), lastEntryIndex);
             reviseLedgerBeginIndex();
         }
+        /**
+         * 对data数据文件和index数据文件修改Position并执行truncate
+         *
+         * processOffset已经对应了下一个消息存储的offset   所以这里需要对lastEntryIndex +1  即获得index对应的下一个消息的存储offset
+         */
         this.dataFileList.updateWherePosition(processOffset);
         this.dataFileList.truncateOffset(processOffset);
         long indexProcessOffset = (lastEntryIndex + 1) * INDEX_UNIT_SIZE;
         this.indexFileList.updateWherePosition(indexProcessOffset);
         this.indexFileList.truncateOffset(indexProcessOffset);
+        /**
+         * 更新MemberState的ledgerEndIndex和ledgerEndTerm
+         */
         updateLedgerEndIndexAndTerm();
+        /**
+         * 再次校验文件是否连续
+         */
         PreConditions.check(dataFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check data file order failed after recovery");
         PreConditions.check(indexFileList.checkSelf(), DLedgerResponseCode.DISK_ERROR, "check index file order failed after recovery");
         //Load the committed index from checkpoint
+        /**
+         * 从检查点文件中读取committedIndex   并更新
+         */
         Properties properties = loadCheckPoint();
         if (properties == null || !properties.containsKey(COMMITTED_INDEX_KEY)) {
             return;

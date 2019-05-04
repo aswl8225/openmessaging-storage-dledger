@@ -53,7 +53,7 @@ public class MmapFileList {
     }
 
     /**
-     * 校验文件是否联系
+     * 校验文件是否连续
      * @return
      */
     public boolean checkSelf() {
@@ -61,7 +61,7 @@ public class MmapFileList {
             Iterator<MmapFile> iterator = mappedFiles.iterator();
             MmapFile pre = null;
             /**
-             * 遍历问价你列表
+             * 遍历文件列表
              */
             while (iterator.hasNext()) {
                 MmapFile cur = iterator.next();
