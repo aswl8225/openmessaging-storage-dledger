@@ -60,7 +60,10 @@ public class DLedgerEntryPusher {
      * 当前term下   peerId存储的最大消息的index   即leader得到follower成功的应答
      */
     private Map<Long, ConcurrentMap<String, Long>> peerWaterMarksByTerm = new ConcurrentHashMap<>();
-    /**Map<term, ConcurrentMap<index, TimeoutFuture<AppendEntryResponse>>>**/
+    /**
+     * Map<term, ConcurrentMap<index, TimeoutFuture<AppendEntryResponse>>>
+     * 缓存客户端发送给leader的append请求
+     **/
     private Map<Long, ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>>> pendingAppendResponsesByTerm = new ConcurrentHashMap<>();
 
     private EntryHandler entryHandler = new EntryHandler(logger);
@@ -351,6 +354,9 @@ public class DLedgerEntryPusher {
                 boolean needCheck = false;
                 int ackNum = 0;
                 if (quorumIndex >= 0) {
+                    /**
+                     * 以quorumIndex为基准   从responses查找符合的值
+                     */
                     for (Long i = quorumIndex; i >= 0; i--) {
                         try {
                             CompletableFuture<AppendEntryResponse> future = responses.remove(i);
@@ -411,10 +417,16 @@ public class DLedgerEntryPusher {
                 }
 
                 /**
-                 * ？？？？？
+                 * 超时
                  */
                 if (DLedgerUtils.elapsed(lastCheckLeakTimeMs) > 1000 || needCheck) {
+                    /**
+                     * 更新peerWaterMarksByTerm
+                     */
                     updatePeerWaterMark(currTerm, memberState.getSelfId(), dLedgerStore.getLedgerEndIndex());
+                    /**
+                     * 以responses.entrySet()为基准     找出小于quorumIndex的数据   给予成功的响应
+                     */
                     for (Map.Entry<Long, TimeoutFuture<AppendEntryResponse>> futureEntry : responses.entrySet()) {
                         if (futureEntry.getKey() < quorumIndex) {
                             AppendEntryResponse response = new AppendEntryResponse();
