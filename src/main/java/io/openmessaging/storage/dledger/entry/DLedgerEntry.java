@@ -17,6 +17,19 @@
 
 package io.openmessaging.storage.dledger.entry;
 
+/**
+ * data数据格式
+ *     4        magic;
+ *     4        size;
+ *     8        index;
+ *     8        term;
+ *     8        pos;
+ *     4        channel;
+ *     4        chainCrc;
+ *     4        bodyCrc;
+ *     4        bodyLength
+ *     byte[]   body;
+ */
 public class DLedgerEntry {
 
     public final static int POS_OFFSET = 4 + 4 + 8 + 8;
