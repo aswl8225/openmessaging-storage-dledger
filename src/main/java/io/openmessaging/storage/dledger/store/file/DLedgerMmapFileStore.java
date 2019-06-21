@@ -547,6 +547,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
              * data数据存储pos
              */
             DLedgerEntryCoder.setPos(dataBuffer, prePos);
+            /**
+             * 给rocketmq使用   用来回填内部存储的commitlog对应的PHYSICALOFFSET
+             */
             for (AppendHook writeHook : appendHooks) {
                 writeHook.doHook(entry, dataBuffer.slice(), DLedgerEntry.BODY_OFFSET);
             }
