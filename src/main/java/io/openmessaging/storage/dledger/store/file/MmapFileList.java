@@ -336,7 +336,7 @@ public class MmapFileList {
                     return -1;
                 }
                 /**
-                 * 创建新文件
+                 * 获取最后一个文件  没有则创建新文件
                  */
                 mappedFile = getLastMappedFile(0);
                 if (null == mappedFile) {
