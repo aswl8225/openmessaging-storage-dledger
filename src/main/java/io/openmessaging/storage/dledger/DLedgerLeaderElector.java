@@ -21,6 +21,8 @@ import com.alibaba.fastjson.JSON;
 import io.openmessaging.storage.dledger.protocol.DLedgerResponseCode;
 import io.openmessaging.storage.dledger.protocol.HeartBeatRequest;
 import io.openmessaging.storage.dledger.protocol.HeartBeatResponse;
+import io.openmessaging.storage.dledger.protocol.LeadershipTransferRequest;
+import io.openmessaging.storage.dledger.protocol.LeadershipTransferResponse;
 import io.openmessaging.storage.dledger.protocol.VoteRequest;
 import io.openmessaging.storage.dledger.protocol.VoteResponse;
 import io.openmessaging.storage.dledger.utils.DLedgerUtils;
@@ -69,13 +71,16 @@ public class DLedgerLeaderElector {
 
     private StateMaintainer stateMaintainer = new StateMaintainer("StateMaintainer", logger);
 
+    private final TakeLeadershipTask takeLeadershipTask = new TakeLeadershipTask();
+
     /**
      * 选举leader
      * @param dLedgerConfig
      * @param memberState
      * @param dLedgerRpcService
      */
-    public DLedgerLeaderElector(DLedgerConfig dLedgerConfig, MemberState memberState, DLedgerRpcService dLedgerRpcService) {
+    public DLedgerLeaderElector(DLedgerConfig dLedgerConfig, MemberState memberState,
+        DLedgerRpcService dLedgerRpcService) {
         this.dLedgerConfig = dLedgerConfig;
         this.memberState = memberState;
         this.dLedgerRpcService = dLedgerRpcService;
@@ -274,6 +279,7 @@ public class DLedgerLeaderElector {
      */
     public void changeRoleToFollower(long term, String leaderId) {
         logger.info("[{}][ChangeRoleToFollower] from term: {} leaderId: {} and currTerm: {}", memberState.getSelfId(), term, leaderId, memberState.currTerm());
+        lastParseResult = VoteResponse.ParseResult.WAIT_TO_REVOTE;
         /**
          * 变更为Follower
          */
@@ -338,7 +344,7 @@ public class DLedgerLeaderElector {
                      * 当前节点已经有对应的leader
                      */
                     if (memberState.getLeaderId() != null) {
-                        return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_ALREADY__HAS_LEADER));
+                        return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_ALREADY_HAS_LEADER));
                     } else {
                         /**
                          * 当前节点没有对应的leader  但是已经投票给了其他节点
@@ -370,6 +376,10 @@ public class DLedgerLeaderElector {
 
             if (request.getTerm() < memberState.getLedgerEndTerm()) {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.getLedgerEndTerm()).voteResult(VoteResponse.RESULT.REJECT_TERM_SMALL_THAN_LEDGER));
+            }
+
+            if (!self && isTakingLeadership() && request.getLedgerEndTerm() == memberState.getLedgerEndTerm() && memberState.getLedgerEndIndex() >= request.getLedgerEndIndex()) {
+                return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_TAKING_LEADERSHIP));
             }
 
             /**
@@ -432,8 +442,8 @@ public class DLedgerLeaderElector {
             CompletableFuture<HeartBeatResponse> future = dLedgerRpcService.heartBeat(heartBeatRequest);
             future.whenComplete((HeartBeatResponse x, Throwable ex) -> {
                 try {
-
                     if (ex != null) {
+                        memberState.getPeersLiveTable().put(id, Boolean.FALSE);
                         throw ex;
                     }
                     switch (DLedgerResponseCode.valueOf(x.getCode())) {
@@ -465,6 +475,11 @@ public class DLedgerLeaderElector {
                             break;
                     }
 
+                    if (x.getCode() == DLedgerResponseCode.NETWORK_ERROR.getCode())
+                        memberState.getPeersLiveTable().put(id, Boolean.FALSE);
+                    else
+                        memberState.getPeersLiveTable().put(id, Boolean.TRUE);
+
                     /**
                      * 同意的节点达到合法数量    同意的节点+选期小于当前节点选期的节点数达到合法数量
                      */
@@ -476,7 +491,7 @@ public class DLedgerLeaderElector {
                         beatLatch.countDown();
                     }
                 } catch (Throwable t) {
-                    logger.error("Parse heartbeat response failed", t);
+                    logger.error("heartbeat response failed", t);
                 } finally {
                     allNum.incrementAndGet();
                     /**
@@ -630,12 +645,21 @@ public class DLedgerLeaderElector {
         return responses;
     }
 
+    private boolean isTakingLeadership() {
+        return memberState.getSelfId().equals(dLedgerConfig.getPreferredLeaderId())
+            || memberState.getTermToTakeLeadership() == memberState.currTerm();
+    }
+
     /**
      * 下次发起投票时间
      * 当前时间 + 上次投票消耗时间 + （minVoteIntervalMs和maxVoteIntervalMs）之间的随机数
      * @return
      */
     private long getNextTimeToRequestVote() {
+        if (isTakingLeadership()) {
+            return System.currentTimeMillis() + dLedgerConfig.getMinTakeLeadershipVoteIntervalMs() +
+                random.nextInt(dLedgerConfig.getMaxTakeLeadershipVoteIntervalMs() - dLedgerConfig.getMinTakeLeadershipVoteIntervalMs());
+        }
         return System.currentTimeMillis() + lastVoteCost + minVoteIntervalMs + random.nextInt(maxVoteIntervalMs - minVoteIntervalMs);
     }
 
@@ -734,8 +758,9 @@ public class DLedgerLeaderElector {
                                 acceptedNum.incrementAndGet();
                                 break;
                             case REJECT_ALREADY_VOTED:
+                            case REJECT_TAKING_LEADERSHIP:
                                 break;
-                            case REJECT_ALREADY__HAS_LEADER:
+                            case REJECT_ALREADY_HAS_LEADER:
                                 /**
                                  * 其他节点已经有leader  且选期一致   则设置alreadyHasLeader为true  即集群中已经有leader
                                  */
@@ -783,7 +808,7 @@ public class DLedgerLeaderElector {
                         voteLatch.countDown();
                     }
                 } catch (Throwable t) {
-                    logger.error("Get error when parsing vote response ", t);
+                    logger.error("vote response failed", t);
                 } finally {
                     allNum.incrementAndGet();
                     /**
@@ -827,7 +852,7 @@ public class DLedgerLeaderElector {
             /**
              * 集群内已经有leader   nextTimeToRequestVote相应延长3个心跳时间   似乎是在等待leader发送心跳
              */
-            parseResult = VoteResponse.ParseResult.WAIT_TO_VOTE_NEXT;
+            parseResult = VoteResponse.ParseResult.WAIT_TO_REVOTE;
             nextTimeToRequestVote = getNextTimeToRequestVote() + heartBeatTimeIntervalMs * maxHeartBeatLeak;
         } else if (!memberState.isQuorum(validNum.get())) {
             /**
@@ -872,11 +897,10 @@ public class DLedgerLeaderElector {
     }
 
     /**
-     * The core method of maintainer.
-     * Run the specified logic according to the current role:
-     *  candidate => propose a vote.
-     *  leader => send heartbeats to followers, and step down to candidate when quorum followers do not respond.
-     *  follower => accept heartbeats, and change to candidate when no heartbeat from leader.
+     * The core method of maintainer. Run the specified logic according to the current role: candidate => propose a
+     * vote. leader => send heartbeats to followers, and step down to candidate when quorum followers do not respond.
+     * follower => accept heartbeats, and change to candidate when no heartbeat from leader.
+     *
      * @throws Exception
      */
     private void maintainState() throws Exception {
@@ -895,6 +919,12 @@ public class DLedgerLeaderElector {
      * @param role
      */
     private void handleRoleChange(long term, MemberState.Role role) {
+        try {
+            takeLeadershipTask.check(term, role);
+        } catch (Throwable t) {
+            logger.error("takeLeadershipTask.check failed. ter={}, role={}", term, role, t);
+        }
+
         for (RoleChangeHandler roleChangeHandler : roleChangeHandlers) {
             try {
                 /**
@@ -910,6 +940,122 @@ public class DLedgerLeaderElector {
     public void addRoleChangeHandler(RoleChangeHandler roleChangeHandler) {
         if (!roleChangeHandlers.contains(roleChangeHandler)) {
             roleChangeHandlers.add(roleChangeHandler);
+        }
+    }
+
+    public CompletableFuture<LeadershipTransferResponse> handleLeadershipTransfer(
+        LeadershipTransferRequest request) throws Exception {
+        logger.info("handleLeadershipTransfer: {}", request);
+        synchronized (memberState) {
+            if (memberState.currTerm() != request.getTerm()) {
+                logger.warn("[BUG] [HandleLeaderTransfer] currTerm={} != request.term={}", memberState.currTerm(), request.getTerm());
+                return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.INCONSISTENT_TERM.getCode()));
+            }
+
+            if (!memberState.isLeader()) {
+                logger.warn("[BUG] [HandleLeaderTransfer] selfId={} is not leader", request.getLeaderId());
+                return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.NOT_LEADER.getCode()));
+            }
+
+            if (memberState.getTransferee() != null) {
+                logger.warn("[BUG] [HandleLeaderTransfer] transferee={} is already set", memberState.getTransferee());
+                return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.LEADER_TRANSFERRING.getCode()));
+            }
+
+            memberState.setTransferee(request.getTransfereeId());
+        }
+        LeadershipTransferRequest takeLeadershipRequest = new LeadershipTransferRequest();
+        takeLeadershipRequest.setGroup(memberState.getGroup());
+        takeLeadershipRequest.setLeaderId(memberState.getLeaderId());
+        takeLeadershipRequest.setLocalId(memberState.getSelfId());
+        takeLeadershipRequest.setRemoteId(request.getTransfereeId());
+        takeLeadershipRequest.setTerm(request.getTerm());
+        takeLeadershipRequest.setTakeLeadershipLedgerIndex(memberState.getLedgerEndIndex());
+        takeLeadershipRequest.setTransferId(memberState.getSelfId());
+        takeLeadershipRequest.setTransfereeId(request.getTransfereeId());
+        if (memberState.currTerm() != request.getTerm()) {
+            logger.warn("[HandleLeaderTransfer] term changed, cur={} , request={}", memberState.currTerm(), request.getTerm());
+            return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.EXPIRED_TERM.getCode()));
+        }
+
+        return dLedgerRpcService.leadershipTransfer(takeLeadershipRequest).thenApply(response -> {
+            synchronized (memberState) {
+                if (memberState.currTerm() == request.getTerm() && memberState.getTransferee() != null) {
+                    logger.warn("leadershipTransfer failed, set transferee to null");
+                    memberState.setTransferee(null);
+                }
+            }
+            return response;
+        });
+    }
+
+    public CompletableFuture<LeadershipTransferResponse> handleTakeLeadership(
+        LeadershipTransferRequest request) throws Exception {
+        logger.debug("handleTakeLeadership.request={}", request);
+        synchronized (memberState) {
+            if (memberState.currTerm() != request.getTerm()) {
+                logger.warn("[BUG] [handleTakeLeadership] currTerm={} != request.term={}", memberState.currTerm(), request.getTerm());
+                return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.INCONSISTENT_TERM.getCode()));
+            }
+
+            long targetTerm = request.getTerm() + 1;
+            memberState.setTermToTakeLeadership(targetTerm);
+            CompletableFuture<LeadershipTransferResponse> response = new CompletableFuture<>();
+            takeLeadershipTask.update(request, response);
+            changeRoleToCandidate(targetTerm);
+            needIncreaseTermImmediately = true;
+            return response;
+        }
+    }
+
+    private class TakeLeadershipTask {
+        private LeadershipTransferRequest request;
+        private CompletableFuture<LeadershipTransferResponse> responseFuture;
+
+        public synchronized void update(LeadershipTransferRequest request,
+            CompletableFuture<LeadershipTransferResponse> responseFuture) {
+            this.request = request;
+            this.responseFuture = responseFuture;
+        }
+
+        public synchronized void check(long term, MemberState.Role role) {
+            logger.trace("TakeLeadershipTask called, term={}, role={}", term, role);
+            if (memberState.getTermToTakeLeadership() == -1 || responseFuture == null) {
+                return;
+            }
+            LeadershipTransferResponse response = null;
+            if (term > memberState.getTermToTakeLeadership()) {
+                response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.EXPIRED_TERM.getCode());
+            } else if (term == memberState.getTermToTakeLeadership()) {
+                switch (role) {
+                    case LEADER:
+                        response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.SUCCESS.getCode());
+                        break;
+                    case FOLLOWER:
+                        response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.TAKE_LEADERSHIP_FAILED.getCode());
+                        break;
+                    default:
+                        return;
+                }
+            } else {
+                switch (role) {
+                    /*
+                     * The node may receive heartbeat before term increase as a candidate,
+                     * then it will be follower and term < TermToTakeLeadership
+                     */
+                    case FOLLOWER:
+                        response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.TAKE_LEADERSHIP_FAILED.getCode());
+                        break;
+                    default:
+                        response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.INTERNAL_ERROR.getCode());
+                }
+            }
+
+            responseFuture.complete(response);
+            logger.info("TakeLeadershipTask finished. request={}, response={}, term={}, role={}", request, response, term, role);
+            memberState.setTermToTakeLeadership(-1);
+            responseFuture = null;
+            request = null;
         }
     }
 
