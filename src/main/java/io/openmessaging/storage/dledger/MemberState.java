@@ -25,6 +25,7 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
@@ -45,14 +46,18 @@ public class MemberState {
     private final String group;
     private final String selfId;
     private final String peers;
-    private Role role = CANDIDATE;
-    private String leaderId;
-    private long currTerm = -1;
-    private String currVoteFor;
-    private long ledgerEndIndex = -1;
-    private long ledgerEndTerm = -1;
+    private volatile Role role = CANDIDATE;
+    private volatile String leaderId;
+    private volatile long currTerm = 0;
+    private volatile String currVoteFor;
+    private volatile long ledgerEndIndex = -1;
+    private volatile long ledgerEndTerm = -1;
     private long knownMaxTermInGroup = -1;
     private Map<String, String> peerMap = new HashMap<>();
+    private Map<String, Boolean> peersLiveTable = new ConcurrentHashMap<>();
+
+    private volatile String transferee;
+    private volatile long termToTakeLeadership = -1;
 
     public MemberState(DLedgerConfig config) {
         this.group = config.getGroup();
@@ -64,7 +69,9 @@ public class MemberState {
          * 将其按照【;】和【-】分割后   注入到peerMap
          */
         for (String peerInfo : this.peers.split(";")) {
-            peerMap.put(peerInfo.split("-")[0], peerInfo.split("-")[1]);
+            String peerSelfId = peerInfo.split("-")[0];
+            String peerAddress = peerInfo.substring(selfId.length() + 1);
+            peerMap.put(peerSelfId, peerAddress);
         }
         this.dLedgerConfig = config;
 
@@ -198,12 +205,14 @@ public class MemberState {
         PreConditions.check(currTerm == term, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%d != %d", currTerm, term);
         this.role = LEADER;
         this.leaderId = selfId;
+        peersLiveTable.clear();
     }
 
     public synchronized void changeToFollower(long term, String leaderId) {
         PreConditions.check(currTerm == term, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%d != %d", currTerm, term);
         this.role = FOLLOWER;
         this.leaderId = leaderId;
+        transferee = null;
     }
 
     /**
@@ -223,6 +232,24 @@ public class MemberState {
         //the currTerm should be promoted in handleVote thread
         this.role = CANDIDATE;
         this.leaderId = null;
+        transferee = null;
+    }
+
+    public String getTransferee() {
+        return transferee;
+    }
+
+    public void setTransferee(String transferee) {
+        PreConditions.check(role == LEADER, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%s is not leader", selfId);
+        this.transferee = transferee;
+    }
+
+    public long getTermToTakeLeadership() {
+        return termToTakeLeadership;
+    }
+
+    public void setTermToTakeLeadership(long termToTakeLeadership) {
+        this.termToTakeLeadership = termToTakeLeadership;
     }
 
     public String getSelfId() {
@@ -283,6 +310,10 @@ public class MemberState {
 
     public Map<String, String> getPeerMap() {
         return peerMap;
+    }
+
+    public Map<String, Boolean> getPeersLiveTable() {
+        return peersLiveTable;
     }
 
     //just for test

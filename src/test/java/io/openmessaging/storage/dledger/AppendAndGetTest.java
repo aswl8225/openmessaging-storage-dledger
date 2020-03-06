@@ -104,7 +104,7 @@ public class AppendAndGetTest extends ServerTestHarness {
     }
 
     @Test
-    public void testThressServerInFile() throws Exception {
+    public void testThreeServerInFile() throws Exception {
         String group = UUID.randomUUID().toString();
         String peers = "n0-localhost:10006;n1-localhost:10007;n2-localhost:10008";
         /**

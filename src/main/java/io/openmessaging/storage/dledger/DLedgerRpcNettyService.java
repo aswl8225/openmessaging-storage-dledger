@@ -27,6 +27,8 @@ import io.openmessaging.storage.dledger.protocol.GetEntriesRequest;
 import io.openmessaging.storage.dledger.protocol.GetEntriesResponse;
 import io.openmessaging.storage.dledger.protocol.HeartBeatRequest;
 import io.openmessaging.storage.dledger.protocol.HeartBeatResponse;
+import io.openmessaging.storage.dledger.protocol.LeadershipTransferRequest;
+import io.openmessaging.storage.dledger.protocol.LeadershipTransferResponse;
 import io.openmessaging.storage.dledger.protocol.MetadataRequest;
 import io.openmessaging.storage.dledger.protocol.MetadataResponse;
 import io.openmessaging.storage.dledger.protocol.PullEntriesRequest;
@@ -36,6 +38,7 @@ import io.openmessaging.storage.dledger.protocol.PushEntryResponse;
 import io.openmessaging.storage.dledger.protocol.RequestOrResponse;
 import io.openmessaging.storage.dledger.protocol.VoteRequest;
 import io.openmessaging.storage.dledger.protocol.VoteResponse;
+import io.openmessaging.storage.dledger.utils.DLedgerUtils;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -51,8 +54,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A netty implementation of DLedgerRpcService.
- * It should be bi-directional, which means it implements both DLedgerProtocol and DLedgerProtocolHandler.
+ * A netty implementation of DLedgerRpcService. It should be bi-directional, which means it implements both
+ * DLedgerProtocol and DLedgerProtocolHandler.
  */
 
 public class DLedgerRpcNettyService extends DLedgerRpcService {
@@ -105,6 +108,7 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         this.remotingServer.registerProcessor(DLedgerRequestCode.PUSH.getCode(), protocolProcessor, null);
         this.remotingServer.registerProcessor(DLedgerRequestCode.VOTE.getCode(), protocolProcessor, null);
         this.remotingServer.registerProcessor(DLedgerRequestCode.HEART_BEAT.getCode(), protocolProcessor, null);
+        this.remotingServer.registerProcessor(DLedgerRequestCode.LEADERSHIP_TRANSFER.getCode(), protocolProcessor, null);
 
         //start the remoting client
         /**
@@ -140,8 +144,13 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
              * 异步发送心跳
              */
             remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
-                HeartBeatResponse response = JSON.parseObject(responseFuture.getResponseCommand().getBody(), HeartBeatResponse.class);
-                future.complete(response);
+                RemotingCommand responseCommand = responseFuture.getResponseCommand();
+                if (responseCommand != null) {
+                    HeartBeatResponse response = JSON.parseObject(responseCommand.getBody(), HeartBeatResponse.class);
+                    future.complete(response);
+                } else {
+                    future.completeExceptionally(new Exception("heart beat rpc call back timeout"));
+                }
             });
         } catch (Throwable t) {
             logger.error("Send heartBeat request failed {}", request.baseInfo(), t);
@@ -166,8 +175,13 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
              * 异步发送选举请求
              */
             remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
-                VoteResponse response = JSON.parseObject(responseFuture.getResponseCommand().getBody(), VoteResponse.class);
-                future.complete(response);
+                RemotingCommand responseCommand = responseFuture.getResponseCommand();
+                if (responseCommand != null) {
+                    VoteResponse response = JSON.parseObject(responseCommand.getBody(), VoteResponse.class);
+                    future.complete(response);
+                } else {
+                    future.completeExceptionally(new Exception("vote rpc call back timeout"));
+                }
             });
         } catch (Throwable t) {
             logger.error("Send vote request failed {}", request.baseInfo(), t);
@@ -188,8 +202,13 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
             RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.APPEND.getCode(), null);
             wrapperRequest.setBody(JSON.toJSONBytes(request));
             remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
-                AppendEntryResponse response = JSON.parseObject(responseFuture.getResponseCommand().getBody(), AppendEntryResponse.class);
-                future.complete(response);
+                RemotingCommand responseCommand = responseFuture.getResponseCommand();
+                if (responseCommand != null) {
+                    AppendEntryResponse response = JSON.parseObject(responseCommand.getBody(), AppendEntryResponse.class);
+                    future.complete(response);
+                } else {
+                    future.completeExceptionally(new Exception("append rpc call back timeout"));
+                }
             });
         } catch (Throwable t) {
             logger.error("Send append request failed {}", request.baseInfo(), t);
@@ -233,12 +252,44 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
              * 获取地址并发送请求
              */
             remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
-                PushEntryResponse response = JSON.parseObject(responseFuture.getResponseCommand().getBody(), PushEntryResponse.class);
-                future.complete(response);
+                RemotingCommand responseCommand = responseFuture.getResponseCommand();
+                if (responseCommand != null) {
+                    PushEntryResponse response = JSON.parseObject(responseCommand.getBody(), PushEntryResponse.class);
+                    future.complete(response);
+                } else {
+                    future.completeExceptionally(new Exception("push rpc call back timeout"));
+                }
             });
         } catch (Throwable t) {
             logger.error("Send push request failed {}", request.baseInfo(), t);
             PushEntryResponse response = new PushEntryResponse();
+            response.copyBaseInfo(request);
+            response.setCode(DLedgerResponseCode.NETWORK_ERROR.getCode());
+            future.complete(response);
+        }
+
+        return future;
+    }
+
+    @Override
+    public CompletableFuture<LeadershipTransferResponse> leadershipTransfer(
+        LeadershipTransferRequest request) throws Exception {
+        CompletableFuture<LeadershipTransferResponse> future = new CompletableFuture<>();
+        try {
+            RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.LEADERSHIP_TRANSFER.getCode(), null);
+            wrapperRequest.setBody(JSON.toJSONBytes(request));
+            remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {
+                RemotingCommand responseCommand = responseFuture.getResponseCommand();
+                if (responseCommand != null) {
+                    LeadershipTransferResponse response = JSON.parseObject(responseFuture.getResponseCommand().getBody(), LeadershipTransferResponse.class);
+                    future.complete(response);
+                } else {
+                    future.completeExceptionally(new Exception("leadershipTransfer rpc call back timeout"));
+                }
+            });
+        } catch (Throwable t) {
+            logger.error("Send leadershipTransfer request failed {}", request.baseInfo(), t);
+            LeadershipTransferResponse response = new LeadershipTransferResponse();
             response.copyBaseInfo(request);
             response.setCode(DLedgerResponseCode.NETWORK_ERROR.getCode());
             future.complete(response);
@@ -265,14 +316,13 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
     }
 
     /**
-     * The core method to handle rpc requests.
-     * The advantages of using future instead of callback:
-     *
+     * The core method to handle rpc requests. The advantages of using future instead of callback:
+     * <p>
      * 1. separate the caller from actual executor, which make it able to handle the future results by the caller's wish
      * 2. simplify the later execution method
-     *
-     * CompletableFuture is an excellent choice, whenCompleteAsync will handle the response asynchronously.
-     * With an independent thread-pool, it will improve performance and reduce blocking points.
+     * <p>
+     * CompletableFuture is an excellent choice, whenCompleteAsync will handle the response asynchronously. With an
+     * independent thread-pool, it will improve performance and reduce blocking points.
      *
      * @param ctx
      * @param request
@@ -359,6 +409,17 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 }, futureExecutor);
                 break;
             }
+            case LEADERSHIP_TRANSFER: {
+                long start = System.currentTimeMillis();
+                LeadershipTransferRequest leadershipTransferRequest = JSON.parseObject(request.getBody(), LeadershipTransferRequest.class);
+                CompletableFuture<LeadershipTransferResponse> future = handleLeadershipTransfer(leadershipTransferRequest);
+                future.whenCompleteAsync((x, y) -> {
+                    writeResponse(x, y, request, ctx);
+                    logger.info("LEADERSHIP_TRANSFER FINISHED. Request={}, response={}, cost={}ms",
+                        request, x, DLedgerUtils.elapsed(start));
+                }, futureExecutor);
+                break;
+            }
             default:
                 logger.error("Unknown request code {} from {}", request.getCode(), request);
                 break;
@@ -372,6 +433,12 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
      * @return
      * @throws Exception
      */
+    @Override
+    public CompletableFuture<LeadershipTransferResponse> handleLeadershipTransfer(
+        LeadershipTransferRequest leadershipTransferRequest) throws Exception {
+        return dLedgerServer.handleLeadershipTransfer(leadershipTransferRequest);
+    }
+
     @Override
     public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         return dLedgerServer.handleHeartBeat(request);

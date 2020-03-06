@@ -27,6 +27,8 @@ import io.openmessaging.storage.dledger.protocol.GetEntriesRequest;
 import io.openmessaging.storage.dledger.protocol.GetEntriesResponse;
 import io.openmessaging.storage.dledger.protocol.HeartBeatRequest;
 import io.openmessaging.storage.dledger.protocol.HeartBeatResponse;
+import io.openmessaging.storage.dledger.protocol.LeadershipTransferRequest;
+import io.openmessaging.storage.dledger.protocol.LeadershipTransferResponse;
 import io.openmessaging.storage.dledger.protocol.MetadataRequest;
 import io.openmessaging.storage.dledger.protocol.MetadataResponse;
 import io.openmessaging.storage.dledger.protocol.PullEntriesRequest;
@@ -38,10 +40,17 @@ import io.openmessaging.storage.dledger.protocol.VoteResponse;
 import io.openmessaging.storage.dledger.store.DLedgerMemoryStore;
 import io.openmessaging.storage.dledger.store.DLedgerStore;
 import io.openmessaging.storage.dledger.store.file.DLedgerMmapFileStore;
+import io.openmessaging.storage.dledger.utils.DLedgerUtils;
 import io.openmessaging.storage.dledger.utils.PreConditions;
+
 import java.io.IOException;
 import java.util.Collections;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
+
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +65,8 @@ public class DLedgerServer implements DLedgerProtocolHander {
     private DLedgerRpcService dLedgerRpcService;
     private DLedgerEntryPusher dLedgerEntryPusher;
     private DLedgerLeaderElector dLedgerLeaderElector;
+
+    private ScheduledExecutorService executorService;
 
     public DLedgerServer(DLedgerConfig dLedgerConfig) {
         this.dLedgerConfig = dLedgerConfig;
@@ -84,8 +95,13 @@ public class DLedgerServer implements DLedgerProtocolHander {
          * 选举leader
          */
         dLedgerLeaderElector = new DLedgerLeaderElector(dLedgerConfig, memberState, dLedgerRpcService);
+        executorService = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            t.setName("DLedgerServer-ScheduledExecutor");
+            return t;
+        });
     }
-
 
 
     public void startup() {
@@ -108,6 +124,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
          * 选举
          */
         this.dLedgerLeaderElector.startup();
+        executorService.scheduleAtFixedRate(this::checkPreferredLeader, 1000, 1000, TimeUnit.MILLISECONDS);
     }
 
     public void shutdown() {
@@ -115,6 +132,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
         this.dLedgerEntryPusher.shutdown();
         this.dLedgerRpcService.shutdown();
         this.dLedgerStore.shutdown();
+        executorService.shutdown();
     }
 
     /**
@@ -144,8 +162,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
      * @return
      * @throws Exception
      */
-    @Override
-    public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
+    @Override public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         try {
             /**
              * 该请求是发送给当前节点的  SelfId==RemoteId  并且同属于一个集群内部
@@ -173,8 +190,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
      * @return
      * @throws Exception
      */
-    @Override
-    public CompletableFuture<VoteResponse> handleVote(VoteRequest request) throws Exception {
+    @Override public CompletableFuture<VoteResponse> handleVote(VoteRequest request) throws Exception {
         try {
             /**
              * 该请求是发送给当前节点的  SelfId==RemoteId
@@ -202,9 +218,10 @@ public class DLedgerServer implements DLedgerProtocolHander {
 
     /**
      * Handle the append requests:
-     *  1.append the entry to local store
-     *  2.submit the future to entry pusher and wait the quorum ack
-     *  3.if the pending requests are full, then reject it immediately
+     * 1.append the entry to local store
+     * 2.submit the future to entry pusher and wait the quorum ack
+     * 3.if the pending requests are full, then reject it immediately
+     *
      * @param request
      * @return
      * @throws IOException
@@ -218,6 +235,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
             PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER);
+            PreConditions.check(memberState.getTransferee() == null, DLedgerResponseCode.LEADER_TRANSFERRING);
             long currTerm = memberState.currTerm();
             if (dLedgerEntryPusher.isPendingFull(currTerm)) {
                 /**
@@ -348,6 +366,82 @@ public class DLedgerServer implements DLedgerProtocolHander {
             return CompletableFuture.completedFuture(response);
         }
 
+    }
+
+    @Override
+    public CompletableFuture<LeadershipTransferResponse> handleLeadershipTransfer(LeadershipTransferRequest request) throws Exception {
+        try {
+            PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
+            PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
+            if (memberState.getSelfId().equals(request.getTransferId())) {
+                //It's the leader received the transfer command.
+                PreConditions.check(memberState.isPeerMember(request.getTransfereeId()), DLedgerResponseCode.UNKNOWN_MEMBER, "transferee=%s is not a peer member", request.getTransfereeId());
+                PreConditions.check(memberState.currTerm() == request.getTerm(), DLedgerResponseCode.INCONSISTENT_TERM, "currTerm(%s) != request.term(%s)", memberState.currTerm(), request.getTerm());
+                PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER, "selfId=%s is not leader=%s", memberState.getSelfId(), memberState.getLeaderId());
+
+                // check fall transferee not fall behind much.
+                long transfereeFallBehind = dLedgerStore.getLedgerEndIndex() - dLedgerEntryPusher.getPeerWaterMark(request.getTerm(), request.getTransfereeId());
+                PreConditions.check(transfereeFallBehind < dLedgerConfig.getMaxLeadershipTransferWaitIndex(),
+                    DLedgerResponseCode.FALL_BEHIND_TOO_MUCH, "transferee fall behind too much, diff=%s", transfereeFallBehind);
+                return dLedgerLeaderElector.handleLeadershipTransfer(request);
+            } else if (memberState.getSelfId().equals(request.getTransfereeId())) {
+                // It's the transferee received the take leadership command.
+                PreConditions.check(request.getTransferId().equals(memberState.getLeaderId()), DLedgerResponseCode.INCONSISTENT_LEADER, "transfer=%s is not leader", request.getTransferId());
+
+                return dLedgerLeaderElector.handleTakeLeadership(request);
+            } else {
+                return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.UNEXPECTED_ARGUMENT.getCode()));
+            }
+        } catch (DLedgerException e) {
+            logger.error("[{}][handleLeadershipTransfer] failed", memberState.getSelfId(), e);
+            LeadershipTransferResponse response = new LeadershipTransferResponse();
+            response.copyBaseInfo(request);
+            response.setCode(e.getCode().getCode());
+            response.setLeaderId(memberState.getLeaderId());
+            return CompletableFuture.completedFuture(response);
+        }
+
+    }
+
+    private void checkPreferredLeader() {
+        if (!memberState.isLeader()) {
+            return;
+        }
+        String preferredLeaderId = dLedgerConfig.getPreferredLeaderId();
+        if (preferredLeaderId == null || preferredLeaderId.equals(dLedgerConfig.getSelfId())) {
+            return;
+        }
+
+        if (!memberState.isPeerMember(preferredLeaderId)) {
+            logger.warn("preferredLeaderId = {} is not a peer member", preferredLeaderId);
+            return;
+        }
+
+        if (memberState.getTransferee() != null) {
+            return;
+        }
+
+        if (!memberState.getPeersLiveTable().containsKey(preferredLeaderId) ||
+            memberState.getPeersLiveTable().get(preferredLeaderId) == Boolean.FALSE) {
+            logger.warn("preferredLeaderId = {} is not online", preferredLeaderId);
+            return;
+        }
+
+        long fallBehind = dLedgerStore.getLedgerEndIndex() - dLedgerEntryPusher.getPeerWaterMark(memberState.currTerm(), preferredLeaderId);
+        logger.info("transferee fall behind index : {}", fallBehind);
+        if (fallBehind < dLedgerConfig.getMaxLeadershipTransferWaitIndex()) {
+            LeadershipTransferRequest request = new LeadershipTransferRequest();
+            request.setTerm(memberState.currTerm());
+            request.setTransfereeId(dLedgerConfig.getPreferredLeaderId());
+
+            try {
+                long startTransferTime = System.currentTimeMillis();
+                LeadershipTransferResponse response = dLedgerLeaderElector.handleLeadershipTransfer(request).get();
+                logger.info("transfer finished. request={},response={},cost={}ms", request, response, DLedgerUtils.elapsed(startTransferTime));
+            } catch (Throwable t) {
+                logger.error("[checkPreferredLeader] error, request={}", request, t);
+            }
+        }
     }
 
     public DLedgerStore getdLedgerStore() {
