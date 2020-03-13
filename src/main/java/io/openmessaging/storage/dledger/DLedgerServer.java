@@ -87,7 +87,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
         dLedgerRpcService = new DLedgerRpcNettyService(this);
 
         /**
-         * 节点内部通讯及计算
+         * 节点内部通讯及计算   实例化EntryDispatcher
          */
         dLedgerEntryPusher = new DLedgerEntryPusher(dLedgerConfig, memberState, dLedgerStore, dLedgerRpcService);
 
@@ -95,6 +95,10 @@ public class DLedgerServer implements DLedgerProtocolHander {
          * 选举leader
          */
         dLedgerLeaderElector = new DLedgerLeaderElector(dLedgerConfig, memberState, dLedgerRpcService);
+
+        /**
+         * 调度线程
+         */
         executorService = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r);
             t.setDaemon(true);
@@ -124,6 +128,10 @@ public class DLedgerServer implements DLedgerProtocolHander {
          * 选举
          */
         this.dLedgerLeaderElector.startup();
+
+        /**
+         * 检查优选leader
+         */
         executorService.scheduleAtFixedRate(this::checkPreferredLeader, 1000, 1000, TimeUnit.MILLISECONDS);
     }
 

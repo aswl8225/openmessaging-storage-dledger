@@ -47,6 +47,11 @@ public class MmapFileList {
 
     private volatile long storeTimestamp = 0;
 
+    /**
+     *
+     * @param storePath  \tmp\dledgerstore\dledger-n0\data
+     * @param mappedFileSize
+     */
     public MmapFileList(final String storePath, int mappedFileSize) {
         this.storePath = storePath;
         this.mappedFileSize = mappedFileSize;
@@ -130,6 +135,9 @@ public class MmapFileList {
              */
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
             if (fileTailOffset > offset) {
+                /**
+                 * offset对应当前文件
+                 */
                 if (offset >= file.getFileFromOffset()) {
                     /**
                      * 更新offset对应文件的WrotePosition、CommittedPosition、FlushedPosition

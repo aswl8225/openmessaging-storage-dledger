@@ -87,7 +87,7 @@ public class MemberState {
     private void loadTerm() {
         try {
             /**
-             * 读取\tmp\dledgerstore\dledger-n0\currterm下的数据
+             * 读取自身节点下（selfId）的数据  \tmp\dledgerstore\dledger-n0\currterm
              */
             String data = IOUtils.file2String(dLedgerConfig.getDefaultPath() + File.separator + TERM_PERSIST_FILE);
 

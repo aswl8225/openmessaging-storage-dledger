@@ -93,11 +93,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         this.dLedgerConfig = dLedgerConfig;
         this.memberState = memberState;
         /**
-         * 数据文件  1024 * 1024 * 1024
+         * 数据文件  1024 * 1024 * 1024   \tmp\dledgerstore\dledger-n0\data
          */
         this.dataFileList = new MmapFileList(dLedgerConfig.getDataStorePath(), dLedgerConfig.getMappedFileSizeForEntryData());
         /**
-         * index文件    32 * 5 * 1024 * 1024
+         * index文件    32 * 5 * 1024 * 1024   \tmp\dledgerstore\dledger-n0\index
          */
         this.indexFileList = new MmapFileList(dLedgerConfig.getIndexStorePath(), dLedgerConfig.getMappedFileSizeForEntryIndex());
         localEntryBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(4 * 1024 * 1024));

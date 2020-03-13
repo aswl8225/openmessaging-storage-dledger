@@ -409,6 +409,9 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 }, futureExecutor);
                 break;
             }
+            /**
+             * 主转让？？？
+             */
             case LEADERSHIP_TRANSFER: {
                 long start = System.currentTimeMillis();
                 LeadershipTransferRequest leadershipTransferRequest = JSON.parseObject(request.getBody(), LeadershipTransferRequest.class);
