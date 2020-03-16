@@ -38,7 +38,7 @@ public class DLedgerEntry {
 
     //数据标志   即是否是正常位
     private int magic;
-    //消息大小
+    //整个消息大小  包含body
     private int size;
     //存储的第几个消息
     private long index;

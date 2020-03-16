@@ -292,7 +292,7 @@ public class MmapFileList {
      */
     public long preAppend(int len, boolean useBlank) {
         /**
-         * 获取最后一个文件
+         * 获取最后一个文件  不存在则创建
          */
         MmapFile mappedFile = getLastMappedFile();
 
@@ -418,6 +418,9 @@ public class MmapFileList {
         MmapFile mappedFile = findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
             int pos = (int) (offset % mappedFileSize);
+            /**
+             * 回文件从pos开始的全部有效数据
+             */
             return mappedFile.selectMappedBuffer(pos);
         }
         return null;
@@ -556,7 +559,7 @@ public class MmapFileList {
     }
 
     /**
-     * 获取最后一个文件
+     * 获取最后一个文件   不存在则创建
      * @param startOffset
      * @return
      */

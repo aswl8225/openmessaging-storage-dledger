@@ -204,6 +204,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             index = 0;
         }
 
+        /**
+         * 倒数第4个文件开始   检查data文件和index文件的数据一致性（第一条数据）
+         */
         long firstEntryIndex = -1;
         for (int i = index; i >= 0; i--) {
             index = i;
@@ -242,6 +245,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 int sizeFromIndex = indexByteBuffer.getInt();
                 long indexFromIndex = indexByteBuffer.getLong();
                 long termFromIndex = indexByteBuffer.getLong();
+                /**
+                 * data数据和index数据应该一致
+                 */
                 PreConditions.check(magic == magicFromIndex, DLedgerResponseCode.DISK_ERROR, "magic %d != %d", magic, magicFromIndex);
                 PreConditions.check(size == sizeFromIndex, DLedgerResponseCode.DISK_ERROR, "size %d != %d", size, sizeFromIndex);
                 PreConditions.check(entryIndex == indexFromIndex, DLedgerResponseCode.DISK_ERROR, "index %d != %d", entryIndex, indexFromIndex);
@@ -382,7 +388,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 if (needWriteIndex) {
                     ByteBuffer indexBuffer = localIndexBuffer.get();
                     /**
-                     * 组装index数据
+                     * 组装index数据   将数据添加到indexBuffer中
                      */
                     DLedgerEntryCoder.encodeIndex(absolutePos, size, magic, entryIndex, entryTerm, indexBuffer);
                     /**
