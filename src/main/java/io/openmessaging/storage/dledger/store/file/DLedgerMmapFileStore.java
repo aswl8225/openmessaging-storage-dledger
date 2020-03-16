@@ -474,11 +474,10 @@ public class DLedgerMmapFileStore extends DLedgerStore {
          */
         SelectMmapBufferResult sbr = firstFile.selectMappedBuffer(0);
         try {
+            ByteBuffer tmpBuffer = sbr.getByteBuffer();
+
             /**
              * 获取StartPosition处的数据
-             */
-            ByteBuffer tmpBuffer = sbr.getByteBuffer();
-            /**
              * 只有resetOffset方法才会设置startPosition
              * 即因为dataFile执行过resetOffset方法   所以indexFile也要进行resetOffset方法
              */
@@ -784,7 +783,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         SelectMmapBufferResult dataSbr = null;
         try {
             /**
-             * 查询index对应得index数据
+             * 查询index对应得indexFile数据
              *
              * index数据存储结构见最上
              */
