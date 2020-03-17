@@ -275,7 +275,7 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         int writePos = getReadPosition();
 
         /**
-         * 件是否已经写满
+         * 文件是否已经写满
          */
         if (this.isFull()) {
             return writePos > flushedPos;
