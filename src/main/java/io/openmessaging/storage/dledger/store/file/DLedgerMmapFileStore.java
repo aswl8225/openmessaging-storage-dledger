@@ -100,9 +100,21 @@ public class DLedgerMmapFileStore extends DLedgerStore {
          * index文件    32 * 5 * 1024 * 1024   \tmp\dledgerstore\dledger-n0\index
          */
         this.indexFileList = new MmapFileList(dLedgerConfig.getIndexStorePath(), dLedgerConfig.getMappedFileSizeForEntryIndex());
+        /**
+         * 对应每条data数据
+         */
         localEntryBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(4 * 1024 * 1024));
+        /**
+         * 对应每条index数据
+         */
         localIndexBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(INDEX_UNIT_SIZE * 2));
+        /**
+         * 刷盘服务
+         */
         flushDataService = new FlushDataService("DLedgerFlushDataService", logger);
+        /**
+         * 定时清理服务
+         */
         cleanSpaceService = new CleanSpaceService("DLedgerCleanSpaceService", logger);
     }
 
