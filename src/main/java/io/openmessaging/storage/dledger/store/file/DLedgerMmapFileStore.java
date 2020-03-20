@@ -217,7 +217,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
 
         /**
-         * 倒数第4个文件开始   检查data文件和index文件的数据一致性（第一条数据）
+         * 倒数第3个文件开始   检查data文件和index文件的数据一致性（第一条数据）
          */
         long firstEntryIndex = -1;
         for (int i = index; i >= 0; i--) {
