@@ -423,7 +423,8 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             lastEntryIndex, processOffset, lastMappedFile.getFileFromOffset(), processOffset - lastMappedFile.getFileFromOffset());
 
         /**
-         * processOffset所在的文件与lastMappedFile之间相差超过一个文件
+         * processOffset与lastMappedFile存储的起始offset之间相差超过一个文件
+         * 即processOffset没有存储在倒数第2和第一的文件中
          */
         if (lastMappedFile.getFileFromOffset() - processOffset > lastMappedFile.getFileSize()) {
             logger.error("[MONITOR]The processOffset is too small, you should check it manually before truncating the data from {}", processOffset);
@@ -479,7 +480,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     }
 
     /**
-     * 修正index数据的BeginIndex位置
+     * 根据data文件的startPosition修正index文件的startPosition
      */
     private void reviseLedgerBeginIndex() {
         //get ledger begin index
