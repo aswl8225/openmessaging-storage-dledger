@@ -430,18 +430,19 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return null;
     }
 
-    /**
-     * 接受leader的心跳
-     * @param request
-     * @return
-     * @throws Exception
-     */
+
     @Override
     public CompletableFuture<LeadershipTransferResponse> handleLeadershipTransfer(
         LeadershipTransferRequest leadershipTransferRequest) throws Exception {
         return dLedgerServer.handleLeadershipTransfer(leadershipTransferRequest);
     }
 
+    /**
+     * 接受leader的心跳
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         return dLedgerServer.handleHeartBeat(request);

@@ -246,7 +246,7 @@ public class DLedgerLeaderElector {
     public void changeRoleToCandidate(long term) {
         synchronized (memberState) {
             /**
-             * 选期大于当前选期
+             * 其他节点请求中的选期大于当前选期
              */
             if (term >= memberState.currTerm()) {
                 /**
@@ -294,7 +294,7 @@ public class DLedgerLeaderElector {
     /**
      * 处理集群内节点的选举请求  包括本身
      * @param request
-     * @param self
+     * @param self  当前请求是否来自于节点本身
      * @return
      */
     public CompletableFuture<VoteResponse> handleVote(VoteRequest request, boolean self) {
@@ -309,7 +309,8 @@ public class DLedgerLeaderElector {
             }
 
             /**
-             * 当前节点为Candidate   但是有其他节点认为自己的leader   回复其他节点   REJECT_UNEXPECTED_LEADER
+             * 远端节点发送请求   且选举的leader为当前节点
+             * 因为节点在选举的时候  都是默认选举本身节点   所以不应该发生选举其他节点为leader的情况
              */
             if (!self && memberState.getSelfId().equals(request.getLeaderId())) {
                 logger.warn("[BUG] [HandleVote] selfId={} but remoteId={}", memberState.getSelfId(), request.getLeaderId());
@@ -328,16 +329,16 @@ public class DLedgerLeaderElector {
                 if (memberState.currVoteFor() == null) {
                     //let it go
                     /**
-                     * 节点目前没有选举leader  交给
+                     * 节点目前没有投票对象
                      */
                 } else if (memberState.currVoteFor().equals(request.getLeaderId())) {
                     //repeat just let it go
                     /**
-                     * 节点投票的leader就是请求中的LeaderId
+                     * 节点投票的对象就是请求中的LeaderId
                      */
                 } else {
                     /**
-                     * 节点投票的leader不是请求中的LeaderId
+                     * 节点投票的对象不是请求中的LeaderId
                      */
 
                     /**
@@ -635,7 +636,7 @@ public class DLedgerLeaderElector {
             } else {
                 //async
                 /**
-                 * 向集群内其他节点发起选举
+                 * 向集群内其他节点发起选举通讯
                  */
                 voteResponse = dLedgerRpcService.vote(voteRequest);
             }
@@ -645,6 +646,10 @@ public class DLedgerLeaderElector {
         return responses;
     }
 
+    /**
+     * 当前节点是优选节点   或者  当前选期是优选节点的选期
+     * @return
+     */
     private boolean isTakingLeadership() {
         return memberState.getSelfId().equals(dLedgerConfig.getPreferredLeaderId())
             || memberState.getTermToTakeLeadership() == memberState.currTerm();
@@ -652,14 +657,23 @@ public class DLedgerLeaderElector {
 
     /**
      * 下次发起投票时间
-     * 当前时间 + 上次投票消耗时间 + （minVoteIntervalMs和maxVoteIntervalMs）之间的随机数
+     *
      * @return
      */
     private long getNextTimeToRequestVote() {
+        /**
+         * 当前节点是优选节点   或者  当前选期是优选节点的选期
+         */
         if (isTakingLeadership()) {
+            /**
+             * 当前时间+（minTakeLeadershipVoteIntervalMs和maxTakeLeadershipVoteIntervalMs）之间的随机数
+             */
             return System.currentTimeMillis() + dLedgerConfig.getMinTakeLeadershipVoteIntervalMs() +
                 random.nextInt(dLedgerConfig.getMaxTakeLeadershipVoteIntervalMs() - dLedgerConfig.getMinTakeLeadershipVoteIntervalMs());
         }
+        /**
+         * 当前时间 + 上次投票消耗时间 + （minVoteIntervalMs和maxVoteIntervalMs）之间的随机数
+         */
         return System.currentTimeMillis() + lastVoteCost + minVoteIntervalMs + random.nextInt(maxVoteIntervalMs - minVoteIntervalMs);
     }
 
@@ -687,7 +701,7 @@ public class DLedgerLeaderElector {
             }
 
             /**
-             * WAIT_TO_VOTE_NEXT时    选期+1或为knownMaxTermInGroup
+             * WAIT_TO_VOTE_NEXT时
              */
             if (lastParseResult == VoteResponse.ParseResult.WAIT_TO_VOTE_NEXT || needIncreaseTermImmediately) {
                 long prevTerm = memberState.currTerm();
@@ -699,6 +713,9 @@ public class DLedgerLeaderElector {
                 logger.info("{}_[INCREASE_TERM] from {} to {}", memberState.getSelfId(), prevTerm, term);
                 lastParseResult = VoteResponse.ParseResult.WAIT_TO_REVOTE;
             } else {
+                /**
+                 * 其他状态
+                 */
                 term = memberState.currTerm();
             }
             ledgerEndIndex = memberState.getLedgerEndIndex();
@@ -709,6 +726,9 @@ public class DLedgerLeaderElector {
          * 立刻计算下次发起选举时间
          */
         if (needIncreaseTermImmediately) {
+            /**
+             * 下次投票时间
+             */
             nextTimeToRequestVote = getNextTimeToRequestVote();
             needIncreaseTermImmediately = false;
             return;
@@ -920,6 +940,9 @@ public class DLedgerLeaderElector {
      */
     private void handleRoleChange(long term, MemberState.Role role) {
         try {
+            /**
+             * 优选leader检查
+             */
             takeLeadershipTask.check(term, role);
         } catch (Throwable t) {
             logger.error("takeLeadershipTask.check failed. ter={}, role={}", term, role, t);
@@ -1018,6 +1041,11 @@ public class DLedgerLeaderElector {
             this.responseFuture = responseFuture;
         }
 
+        /**
+         * 优选leader检查
+         * @param term
+         * @param role
+         */
         public synchronized void check(long term, MemberState.Role role) {
             logger.trace("TakeLeadershipTask called, term={}, role={}", term, role);
             if (memberState.getTermToTakeLeadership() == -1 || responseFuture == null) {
