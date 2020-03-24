@@ -474,6 +474,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             return;
         }
         logger.info("Recover to get committed index={} from checkpoint", committedIndexStr);
+        /**
+         * 修改committedIndex和committedPos
+         */
         updateCommittedIndex(memberState.currTerm(), Long.valueOf(committedIndexStr));
 
         return;

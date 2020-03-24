@@ -714,7 +714,7 @@ public class DLedgerLeaderElector {
             }
 
             /**
-             * WAIT_TO_VOTE_NEXT时
+             * 上一次投票结果为WAIT_TO_VOTE_NEXT时
              */
             if (lastParseResult == VoteResponse.ParseResult.WAIT_TO_VOTE_NEXT || needIncreaseTermImmediately) {
                 long prevTerm = memberState.currTerm();
