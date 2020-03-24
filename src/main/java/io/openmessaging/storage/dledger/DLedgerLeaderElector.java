@@ -379,6 +379,14 @@ public class DLedgerLeaderElector {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.getLedgerEndTerm()).voteResult(VoteResponse.RESULT.REJECT_TERM_SMALL_THAN_LEDGER));
             }
 
+            /**
+             * 远端节点发送请求
+             * 当前节点为优选节点||当前选期是优选节点的选期
+             * request.getLedgerEndTerm() == memberState.getLedgerEndTerm()
+             * memberState.getLedgerEndIndex() >= request.getLedgerEndIndex()
+             *
+             * 即远端节点发送的请求   且本地满足优选leader  且term额满足条件   但是远程节点index小于本地ledgerEndIndex   则拒绝抢主
+             */
             if (!self && isTakingLeadership() && request.getLedgerEndTerm() == memberState.getLedgerEndTerm() && memberState.getLedgerEndIndex() >= request.getLedgerEndIndex()) {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_TAKING_LEADERSHIP));
             }
@@ -386,11 +394,16 @@ public class DLedgerLeaderElector {
             /**
              * 节点选举leader
              *
-             * 1、request.getTerm() = memberState.currTerm()
-             * 2、memberState.currVoteFor()为null或者选举的leader就是request.getLeaderId()
-             * 3、request.getLedgerEndTerm() = memberState.getLedgerEndTerm()
-             * 4、request.getLedgerEndIndex() >= memberState.getLedgerEndIndex()
-             * 5、request.getTerm() >= memberState.getLedgerEndTerm()
+             * 远程节点选举的leader要和本地节点属于同一个集群
+             * 远程节点选举的leader不能为当前节点
+             * 远程节点term要 == 当前节点term
+             * 当前节点没有投票对象或者当前节点就是投票给远端节点
+             * 远程节点ledgerEndTerm == 本地节点ledgerEndTerm时，远端节点的ledgerEndIndex >= 本地ledgerEndIndex
+             * 远程节点ledgerEndTerm > 本地节点ledgerEndTerm
+             * 远程节点term >= 本地远程节点ledgerEndTerm
+             * 远程节点发送的请求   且本地满足优选leader  且term额满足条件   本地ledgerEndIndex要 < 远程节点ledgerEndIndex
+             *
+             * 满足以上条件   本地节点才会同意远程节点的选举
              */
             memberState.setCurrVoteFor(request.getLeaderId());
             return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.ACCEPT));
@@ -1052,9 +1065,15 @@ public class DLedgerLeaderElector {
                 return;
             }
             LeadershipTransferResponse response = null;
+            /**
+             * term>termToTakeLeadership   则返回当前过去的term
+             */
             if (term > memberState.getTermToTakeLeadership()) {
                 response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.EXPIRED_TERM.getCode());
             } else if (term == memberState.getTermToTakeLeadership()) {
+                /**
+                 * term==termToTakeLeadership
+                 */
                 switch (role) {
                     case LEADER:
                         response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.SUCCESS.getCode());
@@ -1066,6 +1085,9 @@ public class DLedgerLeaderElector {
                         return;
                 }
             } else {
+                /**
+                 * term<termToTakeLeadership
+                 */
                 switch (role) {
                     /*
                      * The node may receive heartbeat before term increase as a candidate,
