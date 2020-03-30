@@ -385,7 +385,7 @@ public class DLedgerLeaderElector {
              * request.getLedgerEndTerm() == memberState.getLedgerEndTerm()
              * memberState.getLedgerEndIndex() >= request.getLedgerEndIndex()
              *
-             * 即远端节点发送的请求   且本地满足优选leader  且term额满足条件   但是远程节点index小于本地ledgerEndIndex   则拒绝抢主
+             * 即远端节点发送的请求   且本地满足优选leader  且ledgerEndTerm满足条件   但是远程节点ledgerEndIndex小于本地ledgerEndIndex   则拒绝抢主
              */
             if (!self && isTakingLeadership() && request.getLedgerEndTerm() == memberState.getLedgerEndTerm() && memberState.getLedgerEndIndex() >= request.getLedgerEndIndex()) {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_TAKING_LEADERSHIP));
