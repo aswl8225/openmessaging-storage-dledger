@@ -410,7 +410,7 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
                 break;
             }
             /**
-             * 主转让？？？
+             * 当前leader通知优选节点   开始主转让
              */
             case LEADERSHIP_TRANSFER: {
                 long start = System.currentTimeMillis();

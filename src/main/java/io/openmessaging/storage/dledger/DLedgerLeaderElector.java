@@ -979,25 +979,43 @@ public class DLedgerLeaderElector {
         }
     }
 
+    /**
+     * 主装让
+     * @param request
+     * @return
+     * @throws Exception
+     */
     public CompletableFuture<LeadershipTransferResponse> handleLeadershipTransfer(
         LeadershipTransferRequest request) throws Exception {
         logger.info("handleLeadershipTransfer: {}", request);
         synchronized (memberState) {
+            /**
+             * term不相等则跳出
+             */
             if (memberState.currTerm() != request.getTerm()) {
                 logger.warn("[BUG] [HandleLeaderTransfer] currTerm={} != request.term={}", memberState.currTerm(), request.getTerm());
                 return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.INCONSISTENT_TERM.getCode()));
             }
 
+            /**
+             * 当前节点非leader  则跳出
+             */
             if (!memberState.isLeader()) {
                 logger.warn("[BUG] [HandleLeaderTransfer] selfId={} is not leader", request.getLeaderId());
                 return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.NOT_LEADER.getCode()));
             }
 
+            /**
+             * 已经开始主装让交易
+             */
             if (memberState.getTransferee() != null) {
                 logger.warn("[BUG] [HandleLeaderTransfer] transferee={} is already set", memberState.getTransferee());
                 return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.LEADER_TRANSFERRING.getCode()));
             }
 
+            /**
+             * 开启主转让标志
+             */
             memberState.setTransferee(request.getTransfereeId());
         }
         LeadershipTransferRequest takeLeadershipRequest = new LeadershipTransferRequest();
@@ -1014,10 +1032,16 @@ public class DLedgerLeaderElector {
             return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.EXPIRED_TERM.getCode()));
         }
 
+        /**
+         * 通知优选节点
+         */
         return dLedgerRpcService.leadershipTransfer(takeLeadershipRequest).thenApply(response -> {
             synchronized (memberState) {
                 if (memberState.currTerm() == request.getTerm() && memberState.getTransferee() != null) {
                     logger.warn("leadershipTransfer failed, set transferee to null");
+                    /**
+                     * 关闭主装让标志
+                     */
                     memberState.setTransferee(null);
                 }
             }
@@ -1025,6 +1049,12 @@ public class DLedgerLeaderElector {
         });
     }
 
+    /**
+     *
+     * @param request
+     * @return
+     * @throws Exception
+     */
     public CompletableFuture<LeadershipTransferResponse> handleTakeLeadership(
         LeadershipTransferRequest request) throws Exception {
         logger.debug("handleTakeLeadership.request={}", request);

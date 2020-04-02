@@ -82,6 +82,7 @@ public class DLedgerConfig {
 
     @Parameter(names = {"--preferred-leader-id"}, description = "Preferred LeaderId")
     private String preferredLeaderId;
+    //主转让得阈值   即优选节点和当前leader间得待同步数据数量小于阈值时   启动主装让操作
     private long maxLeadershipTransferWaitIndex = 1000;
     private int minTakeLeadershipVoteIntervalMs =  30;
     private int maxTakeLeadershipVoteIntervalMs =  100;

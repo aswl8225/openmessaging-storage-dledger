@@ -172,6 +172,12 @@ public class DLedgerEntryPusher {
         }
     }
 
+    /**
+     * 获取term下   peerId节点同步数据得进度
+     * @param term
+     * @param peerId
+     * @return
+     */
     public long getPeerWaterMark(long term, String peerId) {
         synchronized (peerWaterMarksByTerm) {
             checkTermForWaterMark(term, "getPeerWaterMark");

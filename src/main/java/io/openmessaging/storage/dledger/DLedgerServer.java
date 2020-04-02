@@ -376,11 +376,24 @@ public class DLedgerServer implements DLedgerProtocolHander {
 
     }
 
+    /**
+     * 优选节点处理leader发送得主转让通知
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<LeadershipTransferResponse> handleLeadershipTransfer(LeadershipTransferRequest request) throws Exception {
         try {
+            /**
+             * 校验
+             */
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
+
+            /**
+             * leader收到主转让通知
+             */
             if (memberState.getSelfId().equals(request.getTransferId())) {
                 //It's the leader received the transfer command.
                 PreConditions.check(memberState.isPeerMember(request.getTransfereeId()), DLedgerResponseCode.UNKNOWN_MEMBER, "transferee=%s is not a peer member", request.getTransfereeId());
@@ -393,6 +406,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
                     DLedgerResponseCode.FALL_BEHIND_TOO_MUCH, "transferee fall behind too much, diff=%s", transfereeFallBehind);
                 return dLedgerLeaderElector.handleLeadershipTransfer(request);
             } else if (memberState.getSelfId().equals(request.getTransfereeId())) {
+                /**
+                 * 优选节点接到leader节点得主转让通知
+                 */
                 // It's the transferee received the take leadership command.
                 PreConditions.check(request.getTransferId().equals(memberState.getLeaderId()), DLedgerResponseCode.INCONSISTENT_LEADER, "transfer=%s is not leader", request.getTransferId());
 
@@ -411,32 +427,59 @@ public class DLedgerServer implements DLedgerProtocolHander {
 
     }
 
+    /**
+     * 检查优选节点
+     */
     private void checkPreferredLeader() {
+        /**
+         * 非leader则跳出
+         */
         if (!memberState.isLeader()) {
             return;
         }
+        //优选节点
         String preferredLeaderId = dLedgerConfig.getPreferredLeaderId();
+
+        /**
+         * 无优选节点   或  当前leader本身就是优选节点   则跳出
+         */
         if (preferredLeaderId == null || preferredLeaderId.equals(dLedgerConfig.getSelfId())) {
             return;
         }
 
+        /**
+         * 优选节点非集群内节点  则跳出
+         */
         if (!memberState.isPeerMember(preferredLeaderId)) {
             logger.warn("preferredLeaderId = {} is not a peer member", preferredLeaderId);
             return;
         }
 
+        /**
+         * 已经开始主装让交易
+         */
         if (memberState.getTransferee() != null) {
             return;
         }
 
+        /**
+         * 优选节点不可用
+         */
         if (!memberState.getPeersLiveTable().containsKey(preferredLeaderId) ||
             memberState.getPeersLiveTable().get(preferredLeaderId) == Boolean.FALSE) {
             logger.warn("preferredLeaderId = {} is not online", preferredLeaderId);
             return;
         }
 
+        /**
+         * leader和优选节点间   数据同步得差值（即优选节点还有多少数据待同步）
+         */
         long fallBehind = dLedgerStore.getLedgerEndIndex() - dLedgerEntryPusher.getPeerWaterMark(memberState.currTerm(), preferredLeaderId);
         logger.info("transferee fall behind index : {}", fallBehind);
+
+        /**
+         * 数据差小于阈值   启动主装让
+         */
         if (fallBehind < dLedgerConfig.getMaxLeadershipTransferWaitIndex()) {
             LeadershipTransferRequest request = new LeadershipTransferRequest();
             request.setTerm(memberState.currTerm());
@@ -444,6 +487,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
 
             try {
                 long startTransferTime = System.currentTimeMillis();
+                /**
+                 * 主装让
+                 */
                 LeadershipTransferResponse response = dLedgerLeaderElector.handleLeadershipTransfer(request).get();
                 logger.info("transfer finished. request={},response={},cost={}ms", request, response, DLedgerUtils.elapsed(startTransferTime));
             } catch (Throwable t) {
