@@ -19,6 +19,7 @@ package io.openmessaging.storage.dledger;
 
 import com.alibaba.fastjson.JSON;
 import io.openmessaging.storage.dledger.entry.DLedgerEntry;
+import io.openmessaging.storage.dledger.exception.DLedgerException;
 import io.openmessaging.storage.dledger.protocol.AppendEntryResponse;
 import io.openmessaging.storage.dledger.protocol.DLedgerResponseCode;
 import io.openmessaging.storage.dledger.protocol.PushEntryRequest;
@@ -30,9 +31,9 @@ import io.openmessaging.storage.dledger.utils.DLedgerUtils;
 import io.openmessaging.storage.dledger.utils.Pair;
 import io.openmessaging.storage.dledger.utils.PreConditions;
 import io.openmessaging.storage.dledger.utils.Quota;
-
-import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -41,6 +42,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -322,31 +324,36 @@ public class DLedgerEntryPusher {
                 }
                 Map<String, Long> peerWaterMarks = peerWaterMarksByTerm.get(currTerm);
 
-                /**
-                 * 综合leader和followers的回应   判断之前的append操作是否得到超过半数+1节点的成功回应
-                 * 如果有则更新当前CommittedIndex
-                 */
-                long quorumIndex = -1;
-                /**
-                 * 循环集群内节点目前写入的index
-                 */
-                for (Long index : peerWaterMarks.values()) {
-//                    System.out.println("index======"+index);
-                    int num = 0;
-                    for (Long another : peerWaterMarks.values()) {
-//                        System.out.println("another======"+another);
-                        if (another >= index) {
-                            num++;
-                        }
-                    }
-                    /**
-                     * 是否获得超过半数+1节点的成功回应
-                     */
-                    if (memberState.isQuorum(num) && index > quorumIndex) {
-//                        System.out.println(index + "," +quorumIndex);
-                        quorumIndex = index;
-                    }
-                }
+//                /**
+//                 * 综合leader和followers的回应   判断之前的append操作是否得到超过半数+1节点的成功回应
+//                 * 如果有则更新当前CommittedIndex
+//                 */
+//                long quorumIndex = -1;
+//                /**
+//                 * 循环集群内节点目前写入的index
+//                 */
+//                for (Long index : peerWaterMarks.values()) {
+////                    System.out.println("index======"+index);
+//                    int num = 0;
+//                    for (Long another : peerWaterMarks.values()) {
+////                        System.out.println("another======"+another);
+//                        if (another >= index) {
+//                            num++;
+//                        }
+//                    }
+//                    /**
+//                     * 是否获得超过半数+1节点的成功回应
+//                     */
+//                    if (memberState.isQuorum(num) && index > quorumIndex) {
+////                        System.out.println(index + "," +quorumIndex);
+//                        quorumIndex = index;
+//                    }
+//                }
+                List<Long> sortedWaterMarks = peerWaterMarks.values()
+                        .stream()
+                        .sorted(Comparator.reverseOrder())
+                        .collect(Collectors.toList());
+                long quorumIndex = sortedWaterMarks.get(sortedWaterMarks.size() / 2);
 
                 /**
                  * 修改CommittedIndex
@@ -580,8 +587,10 @@ public class DLedgerEntryPusher {
             /**
              * 获得index处data数据   即follower没有的消息
              */
-            DLedgerEntry entry = dLedgerStore.get(index);
-            PreConditions.check(entry != null, DLedgerResponseCode.UNKNOWN, "writeIndex=%d", index);
+            DLedgerEntry entry = getDLedgerEntryForAppend(index);
+            if (null == entry) {
+                return;
+            }
             /**
              * ？？？？？
              */
@@ -630,6 +639,23 @@ public class DLedgerEntryPusher {
                 }
             });
             lastPushCommitTimeMs = System.currentTimeMillis();
+        }
+
+        private DLedgerEntry getDLedgerEntryForAppend(long index) {
+            DLedgerEntry entry;
+            try {
+                entry = dLedgerStore.get(index);
+            } catch (DLedgerException e) {
+                //  Do compare, in case the ledgerBeginIndex get refreshed.
+                if (DLedgerResponseCode.INDEX_LESS_THAN_LOCAL_BEGIN.equals(e.getCode())) {
+                    logger.info("[Push-{}]Get INDEX_LESS_THAN_LOCAL_BEGIN when requested index is {}, try to compare", peerId, index);
+                    changeState(-1, PushEntryRequest.Type.COMPARE);
+                    return null;
+                }
+                throw e;
+            }
+            PreConditions.check(entry != null, DLedgerResponseCode.UNKNOWN, "writeIndex=%d", index);
+            return entry;
         }
 
         /**
@@ -753,8 +779,10 @@ public class DLedgerEntryPusher {
         }
 
         private void doBatchAppendInner(long index) throws Exception {
-            DLedgerEntry entry = dLedgerStore.get(index);
-            PreConditions.check(entry != null, DLedgerResponseCode.UNKNOWN, "writeIndex=%d", index);
+            DLedgerEntry entry = getDLedgerEntryForAppend(index);
+            if (null == entry) {
+                return;
+            }
             batchAppendEntryRequest.addEntry(entry);
             if (batchAppendEntryRequest.getTotalSize() >= dLedgerConfig.getMaxBatchPushSize()) {
                 sendBatchAppendEntryRequest();
