@@ -271,11 +271,20 @@ public class DLedgerRpcNettyService extends DLedgerRpcService {
         return future;
     }
 
+    /**
+     * 主转让通知
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<LeadershipTransferResponse> leadershipTransfer(
         LeadershipTransferRequest request) throws Exception {
         CompletableFuture<LeadershipTransferResponse> future = new CompletableFuture<>();
         try {
+            /**
+             * 主转让通知
+             */
             RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.LEADERSHIP_TRANSFER.getCode(), null);
             wrapperRequest.setBody(JSON.toJSONBytes(request));
             remotingClient.invokeAsync(getPeerAddr(request), wrapperRequest, 3000, responseFuture -> {

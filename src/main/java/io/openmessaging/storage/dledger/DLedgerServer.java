@@ -387,23 +387,37 @@ public class DLedgerServer implements DLedgerProtocolHander {
         try {
             /**
              * 校验
+             * 当前请求得处理方应该是当前节点
+             * 请求方与当前节点同属一个集群
              */
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
 
             /**
-             * leader收到主转让通知
+             * leader收到主转让通知  ？？？？？？？？
              */
             if (memberState.getSelfId().equals(request.getTransferId())) {
                 //It's the leader received the transfer command.
+                /**
+                 * 校验
+                 * 请求中得优选节点属于集群内部节点
+                 * 请求方term和当前节点term相同
+                 * 当前节点为leader
+                 */
                 PreConditions.check(memberState.isPeerMember(request.getTransfereeId()), DLedgerResponseCode.UNKNOWN_MEMBER, "transferee=%s is not a peer member", request.getTransfereeId());
                 PreConditions.check(memberState.currTerm() == request.getTerm(), DLedgerResponseCode.INCONSISTENT_TERM, "currTerm(%s) != request.term(%s)", memberState.currTerm(), request.getTerm());
                 PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER, "selfId=%s is not leader=%s", memberState.getSelfId(), memberState.getLeaderId());
 
                 // check fall transferee not fall behind much.
+               /**
+                 * leader和优选节点间   数据同步得差值（即优选节点还有多少数据待同步）小于阈值
+                 */
                 long transfereeFallBehind = dLedgerStore.getLedgerEndIndex() - dLedgerEntryPusher.getPeerWaterMark(request.getTerm(), request.getTransfereeId());
                 PreConditions.check(transfereeFallBehind < dLedgerConfig.getMaxLeadershipTransferWaitIndex(),
                     DLedgerResponseCode.FALL_BEHIND_TOO_MUCH, "transferee fall behind too much, diff=%s", transfereeFallBehind);
+                /**
+                 * 将请求转发至优选节点
+                 */
                 return dLedgerLeaderElector.handleLeadershipTransfer(request);
             } else if (memberState.getSelfId().equals(request.getTransfereeId())) {
                 /**
@@ -456,7 +470,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
         }
 
         /**
-         * 已经开始主装让交易
+         * 已经开始主转让交易
          */
         if (memberState.getTransferee() != null) {
             return;
@@ -478,7 +492,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
         logger.info("transferee fall behind index : {}", fallBehind);
 
         /**
-         * 数据差小于阈值   启动主装让
+         * 数据差小于阈值   启动主转让
          */
         if (fallBehind < dLedgerConfig.getMaxLeadershipTransferWaitIndex()) {
             LeadershipTransferRequest request = new LeadershipTransferRequest();
@@ -488,7 +502,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
             try {
                 long startTransferTime = System.currentTimeMillis();
                 /**
-                 * 主装让
+                 * 主转让
                  */
                 LeadershipTransferResponse response = dLedgerLeaderElector.handleLeadershipTransfer(request).get();
                 logger.info("transfer finished. request={},response={},cost={}ms", request, response, DLedgerUtils.elapsed(startTransferTime));

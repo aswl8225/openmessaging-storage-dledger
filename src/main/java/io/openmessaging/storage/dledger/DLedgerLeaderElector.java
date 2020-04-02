@@ -1033,7 +1033,7 @@ public class DLedgerLeaderElector {
         }
 
         /**
-         * 通知优选节点
+         * leader通知优选节点
          */
         return dLedgerRpcService.leadershipTransfer(takeLeadershipRequest).thenApply(response -> {
             synchronized (memberState) {
@@ -1050,7 +1050,7 @@ public class DLedgerLeaderElector {
     }
 
     /**
-     *
+     * 优选节点处理主转让通知
      * @param request
      * @return
      * @throws Exception
@@ -1059,11 +1059,17 @@ public class DLedgerLeaderElector {
         LeadershipTransferRequest request) throws Exception {
         logger.debug("handleTakeLeadership.request={}", request);
         synchronized (memberState) {
+            /**
+             * term相同
+             */
             if (memberState.currTerm() != request.getTerm()) {
                 logger.warn("[BUG] [handleTakeLeadership] currTerm={} != request.term={}", memberState.currTerm(), request.getTerm());
                 return CompletableFuture.completedFuture(new LeadershipTransferResponse().term(memberState.currTerm()).code(DLedgerResponseCode.INCONSISTENT_TERM.getCode()));
             }
 
+            /**
+             * 将term+1
+             */
             long targetTerm = request.getTerm() + 1;
             memberState.setTermToTakeLeadership(targetTerm);
             CompletableFuture<LeadershipTransferResponse> response = new CompletableFuture<>();
