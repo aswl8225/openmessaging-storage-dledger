@@ -31,12 +31,9 @@ import io.openmessaging.storage.dledger.utils.DLedgerUtils;
 import io.openmessaging.storage.dledger.utils.Pair;
 import io.openmessaging.storage.dledger.utils.PreConditions;
 import io.openmessaging.storage.dledger.utils.Quota;
-<<<<<<<<< Temporary merge branch 1
 import java.util.Comparator;
-=========
 
 import java.util.Collection;
->>>>>>>>> Temporary merge branch 2
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -590,21 +587,17 @@ public class DLedgerEntryPusher {
          * @throws Exception
          */
         private void doAppendInner(long index) throws Exception {
-<<<<<<<<< Temporary merge branch 1
+            /**
+             * 获得index处data数据   即follower没有的消息
+             */
             DLedgerEntry entry = getDLedgerEntryForAppend(index);
             if (null == entry) {
                 return;
             }
-=========
-            /**
-             * 获得index处data数据   即follower没有的消息
-             */
-            DLedgerEntry entry = dLedgerStore.get(index);
-            PreConditions.check(entry != null, DLedgerResponseCode.UNKNOWN, "writeIndex=%d", index);
+
             /**
              * ？？？？？
              */
->>>>>>>>> Temporary merge branch 2
             checkQuotaAndWait(entry);
             PushEntryRequest request = buildPushRequest(entry, PushEntryRequest.Type.APPEND);
             /**
@@ -652,7 +645,6 @@ public class DLedgerEntryPusher {
             lastPushCommitTimeMs = System.currentTimeMillis();
         }
 
-<<<<<<<<< Temporary merge branch 1
         private DLedgerEntry getDLedgerEntryForAppend(long index) {
             DLedgerEntry entry;
             try {
@@ -670,12 +662,10 @@ public class DLedgerEntryPusher {
             return entry;
         }
 
-=========
         /**
          * leader向follower推送COMMIT
          * @throws Exception
          */
->>>>>>>>> Temporary merge branch 2
         private void doCommit() throws Exception {
             if (DLedgerUtils.elapsed(lastPushCommitTimeMs) > 1000) {
                 PushEntryRequest request = buildPushRequest(null, PushEntryRequest.Type.COMMIT);
