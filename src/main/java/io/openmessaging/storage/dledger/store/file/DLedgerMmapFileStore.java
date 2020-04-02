@@ -662,6 +662,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 logger.warn("[TRUNCATE] rebuild for data wrotePos: {} != truncatePos: {}", dataFileList.getMaxWrotePosition(), truncatePos);
                 PreConditions.check(dataFileList.rebuildWithPos(truncatePos), DLedgerResponseCode.DISK_ERROR, "rebuild data truncatePos=%d", truncatePos);
             }
+            reviseDataFileListFlushedWhere(truncatePos);
             /**
              * 不一致   则在当前truncatePos处写入dataBuffer（leader传入的entry）
              */
@@ -682,13 +683,14 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                  */
                 PreConditions.check(indexFileList.rebuildWithPos(truncateIndexOffset), DLedgerResponseCode.DISK_ERROR, "rebuild index truncatePos=%d", truncateIndexOffset);
             }
+            reviseIndexFileListFlushedWhere(truncateIndexOffset);
             /**
              * 构建index数据   在truncateIndexOffset位置写入
              */
             DLedgerEntryCoder.encodeIndex(entry.getPos(), entrySize, entry.getMagic(), entry.getIndex(), entry.getTerm(), indexBuffer);
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
-            ledgerEndTerm = memberState.currTerm();
+            ledgerEndTerm = entry.getTerm();
             ledgerEndIndex = entry.getIndex();
             /**
              * 修正index文件
@@ -700,6 +702,38 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             updateLedgerEndIndexAndTerm();
             return entry.getIndex();
         }
+    }
+
+    private void reviseDataFileListFlushedWhere(long truncatePos) {
+        long offset = calculateWherePosition(this.dataFileList, truncatePos);
+        logger.info("Revise dataFileList flushedWhere from {} to {}", this.dataFileList.getFlushedWhere(), offset);
+        // It seems unnecessary to set position atomically. Wrong position won't get updated during flush or commit.
+        this.dataFileList.updateWherePosition(offset);
+    }
+
+    private void reviseIndexFileListFlushedWhere(long truncateIndexOffset) {
+        long offset = calculateWherePosition(this.indexFileList, truncateIndexOffset);
+        logger.info("Revise indexFileList flushedWhere from {} to {}", this.indexFileList.getFlushedWhere(), offset);
+        this.indexFileList.updateWherePosition(offset);
+    }
+
+    /**
+     * calculate wherePosition after truncate
+     *
+     * @param mappedFileList this.dataFileList or this.indexFileList
+     * @param continuedBeginOffset new begining of offset
+     */
+    private long calculateWherePosition(final MmapFileList mappedFileList, long continuedBeginOffset) {
+        if (mappedFileList.getFlushedWhere() == 0) {
+            return 0;
+        }
+        if (mappedFileList.getMappedFiles().isEmpty()) {
+            return continuedBeginOffset;
+        }
+        if (mappedFileList.getFlushedWhere() < mappedFileList.getFirstMappedFile().getFileFromOffset()) {
+            return mappedFileList.getFirstMappedFile().getFileFromOffset();
+        }
+        return mappedFileList.getFlushedWhere();
     }
 
     /**
@@ -738,7 +772,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
 
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
-            ledgerEndTerm = memberState.currTerm();
+            ledgerEndTerm = entry.getTerm();
             ledgerEndIndex = entry.getIndex();
             if (ledgerBeginIndex == -1) {
                 ledgerBeginIndex = ledgerEndIndex;
@@ -800,7 +834,8 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     @Override
     public DLedgerEntry get(Long index) {
         PreConditions.check(index >= 0, DLedgerResponseCode.INDEX_OUT_OF_RANGE, "%d should gt 0", index);
-        PreConditions.check(index <= ledgerEndIndex && index >= ledgerBeginIndex, DLedgerResponseCode.INDEX_OUT_OF_RANGE, "%d should between %d-%d", index, ledgerBeginIndex, ledgerEndIndex);
+        PreConditions.check(index >= ledgerBeginIndex, DLedgerResponseCode.INDEX_LESS_THAN_LOCAL_BEGIN, "%d should be gt %d, ledgerBeginIndex may be revised", index, ledgerBeginIndex);
+        PreConditions.check(index <= ledgerEndIndex, DLedgerResponseCode.INDEX_OUT_OF_RANGE, "%d should between %d-%d", index, ledgerBeginIndex, ledgerEndIndex);
         SelectMmapBufferResult indexSbr = null;
         SelectMmapBufferResult dataSbr = null;
         try {
@@ -897,6 +932,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
     public interface AppendHook {
         void doHook(DLedgerEntry entry, ByteBuffer buffer, int bodyOffset);
+    }
+
+    // Just for test
+    public void shutdownFlushService() {
+        this.flushDataService.shutdown();
     }
 
     class FlushDataService extends ShutdownAbleThread {
