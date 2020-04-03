@@ -56,7 +56,13 @@ public class MemberState {
     private Map<String, String> peerMap = new HashMap<>();
     private Map<String, Boolean> peersLiveTable = new ConcurrentHashMap<>();
 
+    /**
+     * 优选节点
+     */
     private volatile String transferee;
+    /**
+     * 主转让时得term
+     */
     private volatile long termToTakeLeadership = -1;
 
     public MemberState(DLedgerConfig config) {
@@ -179,6 +185,7 @@ public class MemberState {
 
         /**
          * 集群内最大选期大于当前选期
+         * 主转让时  会更新knownMaxTermInGroup   所以这里投票时会更新成主转让时得term
          */
         if (knownMaxTermInGroup > currTerm) {
             currTerm = knownMaxTermInGroup;
@@ -224,7 +231,7 @@ public class MemberState {
         PreConditions.check(term >= currTerm, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "should %d >= %d", term, currTerm);
 
         /**
-         * 选期大于集群内最大的选期
+         * 更新knownMaxTermInGroup为主转让得term
          */
         if (term > knownMaxTermInGroup) {
             knownMaxTermInGroup = term;
@@ -248,6 +255,10 @@ public class MemberState {
         return termToTakeLeadership;
     }
 
+    /**
+     * 修改主转让时得term
+     * @param termToTakeLeadership
+     */
     public void setTermToTakeLeadership(long termToTakeLeadership) {
         this.termToTakeLeadership = termToTakeLeadership;
     }

@@ -381,11 +381,11 @@ public class DLedgerLeaderElector {
 
             /**
              * 远端节点发送请求
-             * 当前节点为优选节点||当前选期是优选节点的选期
+             * 当前节点是优选节点   或者  当前选期是优选节点主转让的选期
              * request.getLedgerEndTerm() == memberState.getLedgerEndTerm()
              * memberState.getLedgerEndIndex() >= request.getLedgerEndIndex()
              *
-             * 即远端节点发送的请求   且本地满足优选leader  且ledgerEndTerm满足条件   但是远程节点ledgerEndIndex小于本地ledgerEndIndex   则拒绝抢主
+             * 即远端节点发送的请求   且本地满足优选leader  且ledgerEndTerm满足条件   但是远程节点ledgerEndIndex小于本地ledgerEndIndex（在日志高度一样时，不会为同一个term的其他Candidate投票）   则拒绝抢主
              */
             if (!self && isTakingLeadership() && request.getLedgerEndTerm() == memberState.getLedgerEndTerm() && memberState.getLedgerEndIndex() >= request.getLedgerEndIndex()) {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_TAKING_LEADERSHIP));
@@ -660,7 +660,7 @@ public class DLedgerLeaderElector {
     }
 
     /**
-     * 当前节点是优选节点   或者  当前选期是优选节点的选期
+     * 当前节点是优选节点   或者  当前选期是优选节点主转让的选期
      * @return
      */
     private boolean isTakingLeadership() {
@@ -675,7 +675,7 @@ public class DLedgerLeaderElector {
      */
     private long getNextTimeToRequestVote() {
         /**
-         * 当前节点是优选节点   或者  当前选期是优选节点的选期
+         * 当前节点是优选节点   或者  当前选期是优选节点主转让的选期   会以更短得时间间隔进行投票
          */
         if (isTakingLeadership()) {
             /**
@@ -1006,7 +1006,7 @@ public class DLedgerLeaderElector {
             }
 
             /**
-             * 已经开始主装让交易
+             * 已经开始主转让交易
              */
             if (memberState.getTransferee() != null) {
                 logger.warn("[BUG] [HandleLeaderTransfer] transferee={} is already set", memberState.getTransferee());
@@ -1071,10 +1071,20 @@ public class DLedgerLeaderElector {
              * 将term+1
              */
             long targetTerm = request.getTerm() + 1;
+            /**
+             * 记录主转让时得term
+             */
             memberState.setTermToTakeLeadership(targetTerm);
             CompletableFuture<LeadershipTransferResponse> response = new CompletableFuture<>();
+
+            /**
+             * 挂起主转让交易   待选举后通知优选节点
+             */
             takeLeadershipTask.update(request, response);
             changeRoleToCandidate(targetTerm);
+            /**
+             * 立即选举
+             */
             needIncreaseTermImmediately = true;
             return response;
         }
@@ -1084,6 +1094,11 @@ public class DLedgerLeaderElector {
         private LeadershipTransferRequest request;
         private CompletableFuture<LeadershipTransferResponse> responseFuture;
 
+        /**
+         * 挂起主转让交易   待选举后通知优选节点
+         * @param request
+         * @param responseFuture
+         */
         public synchronized void update(LeadershipTransferRequest request,
             CompletableFuture<LeadershipTransferResponse> responseFuture) {
             this.request = request;
@@ -1091,18 +1106,23 @@ public class DLedgerLeaderElector {
         }
 
         /**
-         * 优选leader检查
+         * 主转让检查
          * @param term
          * @param role
          */
         public synchronized void check(long term, MemberState.Role role) {
             logger.trace("TakeLeadershipTask called, term={}, role={}", term, role);
+            /**
+             * 没有发生主转让
+             * 即除非当前为优选节点   且 已经发生了主转让交易   才能通过
+             */
             if (memberState.getTermToTakeLeadership() == -1 || responseFuture == null) {
                 return;
             }
+
             LeadershipTransferResponse response = null;
             /**
-             * term>termToTakeLeadership   则返回当前过去的term
+             * term>termToTakeLeadership   通知优选节点EXPIRED_TERM
              */
             if (term > memberState.getTermToTakeLeadership()) {
                 response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.EXPIRED_TERM.getCode());
@@ -1111,18 +1131,30 @@ public class DLedgerLeaderElector {
                  * term==termToTakeLeadership
                  */
                 switch (role) {
+                    /**
+                     * 主转让成功
+                     */
                     case LEADER:
                         response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.SUCCESS.getCode());
                         break;
+                    /**
+                     * 主转让失败
+                     */
                     case FOLLOWER:
                         response = new LeadershipTransferResponse().term(term).code(DLedgerResponseCode.TAKE_LEADERSHIP_FAILED.getCode());
                         break;
                     default:
+                        /**
+                         * candidate   直接返回   不重置主转让交易
+                         */
                         return;
                 }
             } else {
                 /**
                  * term<termToTakeLeadership
+                 * 一般情况term应该等于termToTakeLeadership
+                 * 但由于优选节点发生主转让时  本身处于candidate  所以可能会收到来自当时leader得heartbeat
+                 * 导致term更新为leader得term  且角色也会发生变化
                  */
                 switch (role) {
                     /*
@@ -1137,8 +1169,14 @@ public class DLedgerLeaderElector {
                 }
             }
 
+            /**
+             * 应答
+             */
             responseFuture.complete(response);
             logger.info("TakeLeadershipTask finished. request={}, response={}, term={}, role={}", request, response, term, role);
+            /**
+             * 主转让结束  修改termToTakeLeadership  responseFuture  request
+             */
             memberState.setTermToTakeLeadership(-1);
             responseFuture = null;
             request = null;
