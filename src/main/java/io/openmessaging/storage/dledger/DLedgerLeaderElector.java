@@ -489,6 +489,9 @@ public class DLedgerLeaderElector {
                             break;
                     }
 
+                    /**
+                     * 节点是否有成功应答
+                     */
                     if (x.getCode() == DLedgerResponseCode.NETWORK_ERROR.getCode())
                         memberState.getPeersLiveTable().put(id, Boolean.FALSE);
                     else
@@ -661,6 +664,7 @@ public class DLedgerLeaderElector {
 
     /**
      * 当前节点是优选节点   或者  当前选期是优选节点主转让的选期
+     * 后一个条件是否有必要？？？
      * @return
      */
     private boolean isTakingLeadership() {
@@ -954,7 +958,7 @@ public class DLedgerLeaderElector {
     private void handleRoleChange(long term, MemberState.Role role) {
         try {
             /**
-             * 优选leader检查
+             * 主转让检查
              */
             takeLeadershipTask.check(term, role);
         } catch (Throwable t) {

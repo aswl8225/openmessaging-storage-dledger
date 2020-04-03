@@ -54,6 +54,9 @@ public class MemberState {
     private volatile long ledgerEndTerm = -1;
     private long knownMaxTermInGroup = -1;
     private Map<String, String> peerMap = new HashMap<>();
+    /**
+     * 集群中得节点是否可用
+     */
     private Map<String, Boolean> peersLiveTable = new ConcurrentHashMap<>();
 
     /**
