@@ -394,7 +394,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
 
             /**
-             * leader收到主转让通知  ？？？？？？？？
+             * leader收到主转让通知  是否是控制台主动发起主转让？？？
              */
             if (memberState.getSelfId().equals(request.getTransferId())) {
                 //It's the leader received the transfer command.
