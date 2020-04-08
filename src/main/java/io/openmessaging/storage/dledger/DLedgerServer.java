@@ -243,6 +243,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
             PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER);
+            /**
+             * getTransferee不为null   表示已经开始主转让   所以leader拒绝接受数据
+             */
             PreConditions.check(memberState.getTransferee() == null, DLedgerResponseCode.LEADER_TRANSFERRING);
             long currTerm = memberState.currTerm();
             if (dLedgerEntryPusher.isPendingFull(currTerm)) {

@@ -241,7 +241,7 @@ public class DLedgerEntryPusher {
                 logger.warn("[MONITOR] get old wait at index={}", entry.getIndex());
             }
             /**
-             * 唤醒EntryDispatcher   向follower发送push请求
+             * EntryDispatcher   leader向follower同步数据
              */
 //            wakeUpDispatchers();
             return future;
@@ -499,6 +499,10 @@ public class DLedgerEntryPusher {
          * ConcurrentMap<index, timestamp>
          */
         private ConcurrentMap<Long, Long> pendingMap = new ConcurrentHashMap<>();
+        /**
+         * leader向follower批量推送后   等待响应得缓存集合
+         * ConcurrentMap<index, timestamp>
+         */
         private ConcurrentMap<Long, Pair<Long, Integer>> batchPendingMap = new ConcurrentHashMap<>();
         private PushEntryRequest batchAppendEntryRequest = new PushEntryRequest();
         private Quota quota = new Quota(dLedgerConfig.getPeerPushQuota());
@@ -1049,12 +1053,18 @@ public class DLedgerEntryPusher {
         @Override
         public void doWork() {
             try {
+                /**
+                 * 检查状态
+                 */
                 if (!checkAndFreshState()) {
                     waitForRunning(1);
                     return;
                 }
 
                 if (type.get() == PushEntryRequest.Type.APPEND) {
+                    /**
+                     * 是否开启批量append  默认false
+                     */
                     if (dLedgerConfig.isEnableBatchPush()) {
                         doBatchAppend();
                     } else {

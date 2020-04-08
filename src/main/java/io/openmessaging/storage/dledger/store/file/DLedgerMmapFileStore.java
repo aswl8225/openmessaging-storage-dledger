@@ -531,6 +531,14 @@ public class DLedgerMmapFileStore extends DLedgerStore {
      *     4        bodyCrc;
      *     4        bodyLength
      *     byte[]   body;
+     *
+     *
+     *index数据格式
+     *     4        magic
+     *     8        pos
+     *     4        size
+     *     8        index
+     *     8        term
      * @param entry
      * @return
      */
@@ -550,6 +558,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         int entrySize = dataBuffer.remaining();
         synchronized (memberState) {
             PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER, null);
+            /**
+             * 未开启主转让交易
+             */
             PreConditions.check(memberState.getTransferee() == null, DLedgerResponseCode.LEADER_TRANSFERRING, null);
             long nextIndex = ledgerEndIndex + 1;
             entry.setIndex(nextIndex);
@@ -588,7 +599,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
              */
             DLedgerEntryCoder.encodeIndex(dataPos, entrySize, CURRENT_MAGIC, nextIndex, memberState.currTerm(), indexBuffer);
             /**
-             * 存储index
+             * 存储index数据
              */
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
 //            System.out.println(indexPos);
