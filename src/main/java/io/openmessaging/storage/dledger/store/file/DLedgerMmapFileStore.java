@@ -673,6 +673,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 logger.warn("[TRUNCATE] rebuild for data wrotePos: {} != truncatePos: {}", dataFileList.getMaxWrotePosition(), truncatePos);
                 PreConditions.check(dataFileList.rebuildWithPos(truncatePos), DLedgerResponseCode.DISK_ERROR, "rebuild data truncatePos=%d", truncatePos);
             }
+            /**
+             * 重新计算data文件的刷盘位置
+             */
             reviseDataFileListFlushedWhere(truncatePos);
             /**
              * 不一致   则在当前truncatePos处写入dataBuffer（leader传入的entry）
@@ -694,6 +697,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                  */
                 PreConditions.check(indexFileList.rebuildWithPos(truncateIndexOffset), DLedgerResponseCode.DISK_ERROR, "rebuild index truncatePos=%d", truncateIndexOffset);
             }
+            /**
+             * 重新计算index文件的刷盘位置
+             */
             reviseIndexFileListFlushedWhere(truncateIndexOffset);
             /**
              * 构建index数据   在truncateIndexOffset位置写入
@@ -708,42 +714,73 @@ public class DLedgerMmapFileStore extends DLedgerStore {
              */
             reviseLedgerBeginIndex();
             /**
-             * 修改memberstate中的endterm和endindex
+             * 修改memberState中的ledgerEndTerm和ledgerEndIndex
              */
             updateLedgerEndIndexAndTerm();
             return entry.getIndex();
         }
     }
 
+    /**
+     * 重新计算data文件的刷盘位置
+     * @param truncatePos
+     */
     private void reviseDataFileListFlushedWhere(long truncatePos) {
+        /**
+         * 计算位置
+         */
         long offset = calculateWherePosition(this.dataFileList, truncatePos);
         logger.info("Revise dataFileList flushedWhere from {} to {}", this.dataFileList.getFlushedWhere(), offset);
         // It seems unnecessary to set position atomically. Wrong position won't get updated during flush or commit.
+        /**
+         * 修改位置
+         */
         this.dataFileList.updateWherePosition(offset);
     }
 
     private void reviseIndexFileListFlushedWhere(long truncateIndexOffset) {
+        /**
+         * 计算位置
+         */
         long offset = calculateWherePosition(this.indexFileList, truncateIndexOffset);
         logger.info("Revise indexFileList flushedWhere from {} to {}", this.indexFileList.getFlushedWhere(), offset);
+        /**
+         * 修改位置
+         */
         this.indexFileList.updateWherePosition(offset);
     }
 
     /**
      * calculate wherePosition after truncate
+     * 计算truncate后的刷盘位置
      *
      * @param mappedFileList this.dataFileList or this.indexFileList
      * @param continuedBeginOffset new begining of offset
      */
     private long calculateWherePosition(final MmapFileList mappedFileList, long continuedBeginOffset) {
+        /**
+         * 尚未刷盘
+         */
         if (mappedFileList.getFlushedWhere() == 0) {
             return 0;
         }
+
+        /**
+         * 所有文件都被truncate
+         */
         if (mappedFileList.getMappedFiles().isEmpty()) {
             return continuedBeginOffset;
         }
+
+        /**
+         * 刷盘位置小于当前存储最小位置
+         */
         if (mappedFileList.getFlushedWhere() < mappedFileList.getFirstMappedFile().getFileFromOffset()) {
             return mappedFileList.getFirstMappedFile().getFileFromOffset();
         }
+        /**
+         * 无变化   返回当前刷盘位置
+         */
         return mappedFileList.getFlushedWhere();
     }
 
