@@ -871,7 +871,7 @@ public class DLedgerEntryPusher {
             changeState(truncateIndex, PushEntryRequest.Type.APPEND);
 
             /**
-             * TRUNCATE如果失败   是否是要重新进行COMPARE操作？？？？
+             * TRUNCATE如果失败   重新进行compare
              */
         }
 
@@ -894,8 +894,7 @@ public class DLedgerEntryPusher {
                     break;
                 case COMPARE:
                     /**
-                     * 当前状态为APPEND
-                     * 则修改为COMPARE  并重置compareIndex、pendingMap
+                     * 当前状态为APPEND  变更为COMPARE 需要重置compareIndex、pendingMap、batchPendingMap
                      */
                     if (this.type.compareAndSet(PushEntryRequest.Type.APPEND, PushEntryRequest.Type.COMPARE)) {
                         compareIndex = -1;
@@ -1089,8 +1088,15 @@ public class DLedgerEntryPusher {
     private class EntryHandler extends ShutdownAbleThread {
 
         private long lastCheckFastForwardTimeMs = System.currentTimeMillis();
-        /**ConcurrentMap<index, Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>>**/
+
+        /**
+         * ConcurrentMap<index, Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>>
+         * 存储leader的append交易的数据
+         */
         ConcurrentMap<Long, Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>> writeRequestMap = new ConcurrentHashMap<>();
+        /**
+         * 存储leader的compare、truncate、commit交易的数据
+         */
         BlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>> compareOrTruncateRequests = new ArrayBlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>>(100);
 
         public EntryHandler(Logger logger) {
@@ -1306,6 +1312,10 @@ public class DLedgerEntryPusher {
 
         }
 
+        /**
+         *
+         * @param endIndex
+         */
         private void checkAppendFuture(long endIndex) {
             long minFastForwardIndex = Long.MAX_VALUE;
             for (Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair : writeRequestMap.values()) {
@@ -1414,6 +1424,9 @@ public class DLedgerEntryPusher {
             pair.getValue().complete(buildBatchAppendResponse(pair.getKey(), DLedgerResponseCode.INCONSISTENT_STATE.getCode()));
         }
         /**
+         * leader向follower推送数据，并记录推送的索引。但以下情况，推送将会停止：
+         * 1、follower异常关闭，所以他的ledgerEndIndex可能比之前还小。所以这时，leader可以快速推送数据，并一直重试！
+         * 2、如果最后一次ack丢失了，而且没有新数据传入。leader可能会再次推送最后一条数据，但是follower将忽略他。
          * The leader does push entries to follower, and record the pushed index. But in the following conditions, the push may get stopped.
          *   * If the follower is abnormally shutdown, its ledger end index may be smaller than before. At this time, the leader may push fast-forward entries, and retry all the time.
          *   * If the last ack is missed, and no new message is coming in.The leader may retry push the last message, but the follower will ignore it.
@@ -1428,8 +1441,14 @@ public class DLedgerEntryPusher {
                 return;
             }
             if (dLedgerConfig.isEnableBatchPush()) {
+                /**
+                 * 批量
+                 */
                 checkBatchAppendFuture(endIndex);
             } else {
+                /**
+                 * 单条
+                 */
                 checkAppendFuture(endIndex);
             }
         }
@@ -1474,7 +1493,7 @@ public class DLedgerEntryPusher {
                      */
                     long nextIndex = dLedgerStore.getLedgerEndIndex() + 1;
                     /**
-                     * 缓存中是否有对应的nextIndex数据
+                     * 缓存中是否有nextIndex对应的数据
                      */
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair = writeRequestMap.remove(nextIndex);
                     /**
