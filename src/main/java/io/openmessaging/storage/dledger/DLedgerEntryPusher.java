@@ -715,7 +715,7 @@ public class DLedgerEntryPusher {
                 }
 
                 /**
-                 *
+                 * 下一个将要同步给follower的数据的index比本机ledgerEndIndex还大
                  */
                 if (writeIndex > dLedgerStore.getLedgerEndIndex()) {
 //                    System.out.println(writeIndex+","+dLedgerStore.getLedgerEndIndex());
