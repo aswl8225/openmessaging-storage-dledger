@@ -70,7 +70,7 @@ public class DLedgerClientRpcNettyService extends DLedgerClientRpcService {
     }
 
     /**
-     * 获取消息
+     * 主转让
      * @param request
      * @return
      * @throws Exception
@@ -84,6 +84,12 @@ public class DLedgerClientRpcNettyService extends DLedgerClientRpcService {
         return CompletableFuture.completedFuture(response);
     }
 
+    /**
+     * 获取消息
+     * @param request
+     * @return
+     * @throws Exception
+     */
     @Override
     public CompletableFuture<GetEntriesResponse> get(GetEntriesRequest request) throws Exception {
         RemotingCommand wrapperRequest = RemotingCommand.createRequestCommand(DLedgerRequestCode.GET.getCode(), null);
