@@ -212,7 +212,7 @@ public class DLedgerEntryPusher {
      */
     public CompletableFuture<AppendEntryResponse> waitAck(DLedgerEntry entry) {
         /**
-         * 更新peerWaterMarksByTerm
+         * 更新当前节点的peerWaterMarksByTerm
          */
         updatePeerWaterMark(entry.getTerm(), memberState.getSelfId(), entry.getIndex());
         /**
@@ -489,6 +489,7 @@ public class DLedgerEntryPusher {
         private long lastPushCommitTimeMs = -1;
         private String peerId;
         private long compareIndex = -1;
+        //表示当前追加到从该节点的序号
         private long writeIndex = -1;
         private int maxPendingSize = 1000;
         private long term = -1;
@@ -568,6 +569,14 @@ public class DLedgerEntryPusher {
             batchAppendEntryRequest.clear();
         }
 
+        /**
+         * 检测配额，如果超过配额，会进行一定的限流，其关键实现点：
+         *
+         *   首先触发条件：append 挂起请求数已超过最大允许挂起数；基于文件存储并主从差异超过300m，可通过 peerPushThrottlePoint 配置。
+         *
+         *   每秒追加的日志超过 20m(可通过 peerPushQuota 配置)，则会 sleep 1s中后再追加。
+         * @param entry
+         */
         private void checkQuotaAndWait(DLedgerEntry entry) {
             if (dLedgerStore.getLedgerEndIndex() - entry.getIndex() <= maxPendingSize) {
                 return;
@@ -581,6 +590,9 @@ public class DLedgerEntryPusher {
             }
             quota.sample(entry.getSize());
             if (quota.validateNow()) {
+                /**
+                 * sleep
+                 */
                 DLedgerUtils.sleep(quota.leftNow());
             }
         }
@@ -600,7 +612,7 @@ public class DLedgerEntryPusher {
             }
 
             /**
-             * ？？？？？
+             * 检测配额，如果超过配额，会进行一定的限流
              */
             checkQuotaAndWait(entry);
             PushEntryRequest request = buildPushRequest(entry, PushEntryRequest.Type.APPEND);
@@ -680,12 +692,12 @@ public class DLedgerEntryPusher {
         }
 
         /**
-         * 如果缓存中的数据超时  则马上执行doAppendInner操作
+         * 检查并追加请求
          * @throws Exception
          */
         private void doCheckAppendResponse() throws Exception {
             /**
-             * 获取当前term   peerId存储的最大index
+             * 获取peerWaterMarksByTerm中当前term和peerId存缓存的最大index
              */
             long peerWaterMark = getPeerWaterMark(term, peerId);
             /**
@@ -715,7 +727,9 @@ public class DLedgerEntryPusher {
                 }
 
                 /**
-                 * 下一个将要同步给follower的数据的index比本机ledgerEndIndex还大
+                 * writeIndex 表示当前追加到从该节点的序号，
+                 * 由于pending请求超过其 pending 请求的队列长度（默认为1w)，时，会阻止数据的追加，
+                 * 此时有可能出现 writeIndex 大于 leaderEndIndex 的情况，此时单独发送 COMMIT 请求。
                  */
                 if (writeIndex > dLedgerStore.getLedgerEndIndex()) {
 //                    System.out.println(writeIndex+","+dLedgerStore.getLedgerEndIndex());
@@ -723,6 +737,9 @@ public class DLedgerEntryPusher {
                      * 向follower发起commit请求
                      */
                     doCommit();
+                    /**
+                     * 检查并追加请求
+                     */
                     doCheckAppendResponse();
                     break;
                 }
@@ -746,6 +763,9 @@ public class DLedgerEntryPusher {
                  * 缓存超过最大值   doAppendInner
                  */
                 if (pendingMap.size() >= maxPendingSize) {
+                    /**
+                     * 检查并追加请求
+                     */
                     doCheckAppendResponse();
                     break;
                 }
@@ -753,12 +773,22 @@ public class DLedgerEntryPusher {
                  * 向follower推送append
                  */
                 doAppendInner(writeIndex);
+                /**
+                 * 推送下一条数据
+                 */
                 writeIndex++;
             }
         }
 
+        /**
+         * 向follower批量同步
+         * @throws Exception
+         */
         private void sendBatchAppendEntryRequest() throws Exception {
             batchAppendEntryRequest.setCommitIndex(dLedgerStore.getCommittedIndex());
+            /**
+             * 批量
+             */
             CompletableFuture<PushEntryResponse> responseFuture = dLedgerRpcService.push(batchAppendEntryRequest);
             batchPendingMap.put(batchAppendEntryRequest.getFirstEntryIndex(), new Pair<>(System.currentTimeMillis(), batchAppendEntryRequest.getCount()));
             responseFuture.whenComplete((x, ex) -> {
@@ -786,12 +816,23 @@ public class DLedgerEntryPusher {
             batchAppendEntryRequest.clear();
         }
 
+        /**
+         * 批量同步
+         * @param index
+         * @throws Exception
+         */
         private void doBatchAppendInner(long index) throws Exception {
             DLedgerEntry entry = getDLedgerEntryForAppend(index);
             if (null == entry) {
                 return;
             }
+            /**
+             * 添加批量数据
+             */
             batchAppendEntryRequest.addEntry(entry);
+            /**
+             * 大于阈值   批量append
+             */
             if (batchAppendEntryRequest.getTotalSize() >= dLedgerConfig.getMaxBatchPushSize()) {
                 sendBatchAppendEntryRequest();
             }
@@ -813,14 +854,27 @@ public class DLedgerEntryPusher {
             }
         }
 
+        /**
+         * 批量append
+         * @throws Exception
+         */
         private void doBatchAppend() throws Exception {
             while (true) {
+                /**
+                 * 检查状态
+                 */
                 if (!checkAndFreshState()) {
                     break;
                 }
                 if (type.get() != PushEntryRequest.Type.APPEND) {
                     break;
                 }
+
+                /**
+                 * writeIndex 表示当前追加到从该节点的序号，
+                 * 由于pending请求超过其 pending 请求的队列长度（默认为1w)，时，会阻止数据的追加，
+                 * 此时有可能出现 writeIndex 大于 leaderEndIndex 的情况，此时单独发送 COMMIT 请求。
+                 */
                 if (writeIndex > dLedgerStore.getLedgerEndIndex()) {
                     if (batchAppendEntryRequest.getCount() > 0) {
                         sendBatchAppendEntryRequest();
@@ -1117,10 +1171,19 @@ public class DLedgerEntryPusher {
             switch (request.getType()) {
                 case APPEND:
                     if (dLedgerConfig.isEnableBatchPush()) {
+                        /**
+                         * 批量数据同步
+                         */
                         PreConditions.check(request.getBatchEntry() != null && request.getCount() > 0, DLedgerResponseCode.UNEXPECTED_ARGUMENT);
+                        /**
+                         * 获取第一条数据得index
+                         */
                         long firstIndex = request.getFirstEntryIndex();
                         writeRequestMap.put(firstIndex, new Pair<>(request, future));
                     } else {
+                        /**
+                         * 单个数据同步
+                         */
                         PreConditions.check(request.getEntry() != null, DLedgerResponseCode.UNEXPECTED_ARGUMENT);
                         long index = request.getEntry().getIndex();
                         /**
