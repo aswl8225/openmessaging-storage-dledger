@@ -89,6 +89,10 @@ public class PushEntryRequest extends RequestOrResponse {
         }
     }
 
+    /**
+     * 获取最后一条数据的index
+     * @return
+     */
     public long getLastEntryIndex() {
         if (!batchEntry.isEmpty()) {
             return batchEntry.get(batchEntry.size() - 1).getIndex();

@@ -831,7 +831,7 @@ public class DLedgerEntryPusher {
              */
             batchAppendEntryRequest.addEntry(entry);
             /**
-             * 大于阈值   批量append
+             * 批量数据size大于阈值   则执行append操作
              */
             if (batchAppendEntryRequest.getTotalSize() >= dLedgerConfig.getMaxBatchPushSize()) {
                 sendBatchAppendEntryRequest();
@@ -1360,14 +1360,26 @@ public class DLedgerEntryPusher {
             return future;
         }
 
+        /**
+         * 批量append
+         * @param writeIndex
+         * @param request
+         * @param future
+         */
         private void handleDoBatchAppend(long writeIndex, PushEntryRequest request,
             CompletableFuture<PushEntryResponse> future) {
             try {
                 PreConditions.check(writeIndex == request.getFirstEntryIndex(), DLedgerResponseCode.INCONSISTENT_STATE);
+                /**
+                 * 遍历批量任务中的每一条数据   执行append操作
+                 */
                 for (DLedgerEntry entry : request.getBatchEntry()) {
                     dLedgerStore.appendAsFollower(entry, request.getTerm(), request.getLeaderId());
                 }
                 future.complete(buildBatchAppendResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
+                /**
+                 * 每次push    leader都会上送CommittedIndex   以供follower修改CommittedIndex
+                 */
                 dLedgerStore.updateCommittedIndex(request.getTerm(), request.getCommitIndex());
             } catch (Throwable t) {
                 logger.error("[HandleDoBatchAppend]", t);
@@ -1411,6 +1423,10 @@ public class DLedgerEntryPusher {
                     //The next entry is coming, just return
                     return;
                 }
+
+                /**
+                 * 以下情况为index>endIndex + 1
+                 */
                 //Fast forward
                 TimeoutFuture<PushEntryResponse> future = (TimeoutFuture<PushEntryResponse>) pair.getValue();
                 /**
@@ -1440,20 +1456,34 @@ public class DLedgerEntryPusher {
             }
             logger.warn("[PushFastForward] ledgerEndIndex={} entryIndex={}", endIndex, minFastForwardIndex);
             /**
-             * 返回响应   错误码为INCONSISTENT_STATE
+             * 向主节点报告从节点已经与主节点发生了数据不一致，从节点并没有写入序号 minFastForwardIndex 的日志。
+             * 如果主节点收到此种响应，将会停止日志转发，转而向各个从节点发送 COMPARE 请求，从而使数据恢复一致。
              */
             pair.getValue().complete(buildResponse(pair.getKey(), DLedgerResponseCode.INCONSISTENT_STATE.getCode()));
         }
 
+        /**
+         *
+         * @param endIndex
+         */
         private void checkBatchAppendFuture(long endIndex) {
             long minFastForwardIndex = Long.MAX_VALUE;
             for (Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair : writeRequestMap.values()) {
+                /**
+                 * 获取批量数据中第一条数据的index和最后一条数据的index
+                 */
                 long firstEntryIndex = pair.getKey().getFirstEntryIndex();
                 long lastEntryIndex = pair.getKey().getLastEntryIndex();
                 //Fall behind
+                /**
+                 * 批量的数据都已经存储到follower上
+                 */
                 if (lastEntryIndex <= endIndex) {
                     try {
                         for (DLedgerEntry dLedgerEntry : pair.getKey().getBatchEntry()) {
+                            /**
+                             * 比较数据是否一致
+                             */
                             PreConditions.check(dLedgerEntry.equals(dLedgerStore.get(dLedgerEntry.getIndex())), DLedgerResponseCode.INCONSISTENT_STATE);
                         }
                         pair.getValue().complete(buildBatchAppendResponse(pair.getKey(), DLedgerResponseCode.SUCCESS.getCode()));
@@ -1465,13 +1495,26 @@ public class DLedgerEntryPusher {
                     writeRequestMap.remove(pair.getKey().getFirstEntryIndex());
                     continue;
                 }
+                /**
+                 * 恰好有新数据写入
+                 */
                 if (firstEntryIndex == endIndex + 1) {
                     return;
                 }
+
+                /**
+                 * 以下情况为firstEntryIndex > endIndex + 1
+                 */
                 TimeoutFuture<PushEntryResponse> future = (TimeoutFuture<PushEntryResponse>) pair.getValue();
+                /**
+                 * 未超时
+                 */
                 if (!future.isTimeOut()) {
                     continue;
                 }
+                /**
+                 * 数据已经超时  则记录所有数据中firstEntryIndex最小的
+                 */
                 if (firstEntryIndex < minFastForwardIndex) {
                     minFastForwardIndex = firstEntryIndex;
                 }
@@ -1484,6 +1527,10 @@ public class DLedgerEntryPusher {
                 return;
             }
             logger.warn("[PushFastForward] ledgerEndIndex={} entryIndex={}", endIndex, minFastForwardIndex);
+            /**
+             * 向主节点报告从节点已经与主节点发生了数据不一致，从节点并没有写入序号 minFastForwardIndex 的日志。
+             * 如果主节点收到此种响应，将会停止日志转发，转而向各个从节点发送 COMPARE 请求，从而使数据恢复一致。
+             */
             pair.getValue().complete(buildBatchAppendResponse(pair.getKey(), DLedgerResponseCode.INCONSISTENT_STATE.getCode()));
         }
         /**
@@ -1493,7 +1540,8 @@ public class DLedgerEntryPusher {
          * The leader does push entries to follower, and record the pushed index. But in the following conditions, the push may get stopped.
          *   * If the follower is abnormally shutdown, its ledger end index may be smaller than before. At this time, the leader may push fast-forward entries, and retry all the time.
          *   * If the last ack is missed, and no new message is coming in.The leader may retry push the last message, but the follower will ignore it.
-         * @param endIndex
+         *
+         * @param endIndex   follower中存储的最后一条数据的index
          */
         private void checkAbnormalFuture(long endIndex) {
             if (DLedgerUtils.elapsed(lastCheckFastForwardTimeMs) < 1000) {
@@ -1572,10 +1620,13 @@ public class DLedgerEntryPusher {
                     }
                     PushEntryRequest request = pair.getKey();
                     if (dLedgerConfig.isEnableBatchPush()) {
+                        /**
+                         * 批量append
+                         */
                         handleDoBatchAppend(nextIndex, request, pair.getValue());
                     } else {
                         /**
-                         * 处理append
+                         * 处理单个append
                          */
                         handleDoAppend(nextIndex, request, pair.getValue());
                     }
