@@ -661,6 +661,11 @@ public class DLedgerEntryPusher {
             lastPushCommitTimeMs = System.currentTimeMillis();
         }
 
+        /**
+         * 获取index处得数据
+         * @param index
+         * @return
+         */
         private DLedgerEntry getDLedgerEntryForAppend(long index) {
             DLedgerEntry entry;
             try {
@@ -790,6 +795,9 @@ public class DLedgerEntryPusher {
              * 批量
              */
             CompletableFuture<PushEntryResponse> responseFuture = dLedgerRpcService.push(batchAppendEntryRequest);
+            /**
+             * 记录请求  等待响应
+             */
             batchPendingMap.put(batchAppendEntryRequest.getFirstEntryIndex(), new Pair<>(System.currentTimeMillis(), batchAppendEntryRequest.getCount()));
             responseFuture.whenComplete((x, ex) -> {
                 try {
@@ -797,11 +805,17 @@ public class DLedgerEntryPusher {
                     DLedgerResponseCode responseCode = DLedgerResponseCode.valueOf(x.getCode());
                     switch (responseCode) {
                         case SUCCESS:
+                            /**
+                             * 移除等待队列
+                             */
                             batchPendingMap.remove(x.getIndex());
                             updatePeerWaterMark(x.getTerm(), peerId, x.getIndex());
                             break;
                         case INCONSISTENT_STATE:
                             logger.info("[Push-{}]Get INCONSISTENT_STATE when batch push index={} term={}", peerId, x.getIndex(), x.getTerm());
+                            /**
+                             * 转变为COMPARE
+                             */
                             changeState(-1, PushEntryRequest.Type.COMPARE);
                             break;
                         default:
@@ -822,6 +836,9 @@ public class DLedgerEntryPusher {
          * @throws Exception
          */
         private void doBatchAppendInner(long index) throws Exception {
+            /**
+             * 获取index处得数据
+             */
             DLedgerEntry entry = getDLedgerEntryForAppend(index);
             if (null == entry) {
                 return;
@@ -838,18 +855,37 @@ public class DLedgerEntryPusher {
             }
         }
 
+        /**
+         * 获取下一批待同步的数据  并推送到follower
+         * @throws Exception
+         */
         private void doCheckBatchAppendResponse() throws Exception {
+            /**
+             * 获取已经同步成功的数据
+             */
             long peerWaterMark = getPeerWaterMark(term, peerId);
+            /**
+             * 再缓存中获取待写入数据
+             */
             Pair pair = batchPendingMap.get(peerWaterMark + 1);
             if (pair != null && System.currentTimeMillis() - (long) pair.getKey() > dLedgerConfig.getMaxPushTimeOutMs()) {
+                /**
+                 * 获取pair中第一条以及最后一条数据的index
+                 */
                 long firstIndex = peerWaterMark + 1;
                 long lastIndex = firstIndex + (int) pair.getValue() - 1;
                 logger.warn("[Push-{}]Retry to push entry from {} to {}", peerId, firstIndex, lastIndex);
                 batchAppendEntryRequest.clear();
+                /**
+                 * 准备批量数据
+                 */
                 for (long i = firstIndex; i <= lastIndex; i++) {
                     DLedgerEntry entry = dLedgerStore.get(i);
                     batchAppendEntryRequest.addEntry(entry);
                 }
+                /**
+                 * 发送
+                 */
                 sendBatchAppendEntryRequest();
             }
         }
@@ -876,26 +912,57 @@ public class DLedgerEntryPusher {
                  * 此时有可能出现 writeIndex 大于 leaderEndIndex 的情况，此时单独发送 COMMIT 请求。
                  */
                 if (writeIndex > dLedgerStore.getLedgerEndIndex()) {
+                    /**
+                     * 将现有数据推送到follower
+                     */
                     if (batchAppendEntryRequest.getCount() > 0) {
                         sendBatchAppendEntryRequest();
                     }
+                    /**
+                     * commit请求
+                     */
                     doCommit();
+                    /**
+                     * 获取下一批待同步的数据  并推送到follower
+                     */
                     doCheckBatchAppendResponse();
                     break;
                 }
+
+                /**
+                 * 待响应的数据大小超过阈值  或者检查时间超时
+                 */
                 if (batchPendingMap.size() >= maxPendingSize || (DLedgerUtils.elapsed(lastCheckLeakTimeMs) > 1000)) {
+                    /**
+                     * 已经同步成功的数据
+                     */
                     long peerWaterMark = getPeerWaterMark(term, peerId);
+                    /**
+                     * 遍历缓存
+                     */
                     for (Map.Entry<Long, Pair<Long, Integer>> entry : batchPendingMap.entrySet()) {
+                        /**
+                         * 当前批次的数据  已经同步成功
+                         */
                         if (entry.getKey() + entry.getValue().getValue() - 1 <= peerWaterMark) {
                             batchPendingMap.remove(entry.getKey());
                         }
                     }
                     lastCheckLeakTimeMs = System.currentTimeMillis();
                 }
+                /**
+                 * 待响应的数据大小超过阈值
+                 */
                 if (batchPendingMap.size() >= maxPendingSize) {
+                    /**
+                     * 获取下一批待同步的数据  并推送到follower
+                     */
                     doCheckBatchAppendResponse();
                     break;
                 }
+                /**
+                 * 向follower批量推送append
+                 */
                 doBatchAppendInner(writeIndex);
                 writeIndex++;
             }
