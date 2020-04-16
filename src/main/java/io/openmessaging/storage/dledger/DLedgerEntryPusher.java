@@ -243,7 +243,6 @@ public class DLedgerEntryPusher {
             /**
              * EntryDispatcher   leader向follower同步数据
              */
-//            wakeUpDispatchers();
             return future;
         }
     }
@@ -275,14 +274,15 @@ public class DLedgerEntryPusher {
                         memberState.getSelfId(), memberState.getRole(), memberState.currTerm(), dLedgerStore.getLedgerBeginIndex(), dLedgerStore.getLedgerEndIndex(), dLedgerStore.getCommittedIndex(), JSON.toJSONString(peerWaterMarksByTerm));
                     lastPrintWatermarkTimeMs = System.currentTimeMillis();
                 }
+
+                /**
+                 * 非Leader则跳出
+                 */
                 if (!memberState.isLeader()) {
                     waitForRunning(1);
                     return;
                 }
 
-                /**
-                 * 仅Leader时执行
-                 */
                 long currTerm = memberState.currTerm();
                 checkTermForPendingMap(currTerm, "QuorumAckChecker");
                 checkTermForWaterMark(currTerm, "QuorumAckChecker");
@@ -324,6 +324,10 @@ public class DLedgerEntryPusher {
                         peerWaterMarksByTerm.remove(term);
                     }
                 }
+
+                /**
+                 * currTerm下每个节点同步数据得进度
+                 */
                 Map<String, Long> peerWaterMarks = peerWaterMarksByTerm.get(currTerm);
 
 
@@ -353,10 +357,17 @@ public class DLedgerEntryPusher {
 //                    }
 //                }
 
+                /**
+                 * 将peerWaterMarks得values倒叙排列注入到新List中
+                 */
                 List<Long> sortedWaterMarks = peerWaterMarks.values()
                         .stream()
                         .sorted(Comparator.reverseOrder())
                         .collect(Collectors.toList());
+                /**
+                 * 当前节点同步得数据进度  大小在中间的节点对应的数据进度
+                 * 即获得超过一半follower响应的数据进度
+                 */
                 long quorumIndex = sortedWaterMarks.get(sortedWaterMarks.size() / 2);
                 /**
                  * 修改CommittedIndex

@@ -117,6 +117,9 @@ public class PushEntryRequest extends RequestOrResponse {
         return batchEntry;
     }
 
+    /**
+     * 清空批量数据
+     */
     public void clear() {
         batchEntry.clear();
         totalSize = 0;
