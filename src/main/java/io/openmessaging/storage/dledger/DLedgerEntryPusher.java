@@ -388,6 +388,11 @@ public class DLedgerEntryPusher {
                         try {
                             CompletableFuture<AppendEntryResponse> future = responses.remove(i);
                             if (future == null) {
+                                /**
+                                 * 最后一次仲裁的日志序号不等于-1
+                                 * 并且最后一次不等于本次新仲裁的日志序号
+                                 * 最后一次仲裁的日志序号不等于最后一次仲裁的日志。正常情况一下，条件一、条件二通常为true，但这一条大概率会返回false。
+                                 */
                                 needCheck = lastQuorumIndex != -1 && lastQuorumIndex != quorumIndex && i != lastQuorumIndex;
                                 break;
                             } else if (!future.isDone()) {
