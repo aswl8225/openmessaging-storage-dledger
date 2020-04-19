@@ -317,7 +317,8 @@ public class MmapFileList {
          */
         if (len + blank > mappedFile.getFileSize() - mappedFile.getWrotePosition()) {
             /**
-             * index文件  直接返回错误
+             * data和index预写入都公用当前方方法
+             * 如果当前是index文件写入   则报错   因为index数据是定长
              */
             if (blank < MIN_BLANK_LEN) {
                 logger.error("Blank {} should ge {}", blank, MIN_BLANK_LEN);
@@ -376,7 +377,7 @@ public class MmapFileList {
         long currPosition = mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
 
         /**
-         * 写入数据
+         * 写入数据  更新wrotePosition
          */
         if (!mappedFile.appendMessage(data, pos, len)) {
             logger.error("Append error for {}", storePath);

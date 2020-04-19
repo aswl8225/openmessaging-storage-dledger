@@ -55,15 +55,32 @@ public class PushEntryRequest extends RequestOrResponse {
         this.commitIndex = commitIndex;
     }
 
+    /**
+     * 添加批量数据
+     * @param entry
+     */
     public void addEntry(DLedgerEntry entry) {
+        /**
+         * 保证数据连续
+         */
         if (!batchEntry.isEmpty()) {
             PreConditions.check(batchEntry.get(0).getIndex() + batchEntry.size() == entry.getIndex(),
                 DLedgerResponseCode.UNKNOWN, "batch push wrong order");
         }
+        /**
+         * 缓存带append数据
+         */
         batchEntry.add(entry);
+        /**
+         * 总数据大小
+         */
         totalSize += entry.getSize();
     }
 
+    /**
+     * 获取第一条数据得index
+     * @return
+     */
     public long getFirstEntryIndex() {
         if (!batchEntry.isEmpty()) {
             return batchEntry.get(0).getIndex();
@@ -72,6 +89,10 @@ public class PushEntryRequest extends RequestOrResponse {
         }
     }
 
+    /**
+     * 获取最后一条数据的index
+     * @return
+     */
     public long getLastEntryIndex() {
         if (!batchEntry.isEmpty()) {
             return batchEntry.get(batchEntry.size() - 1).getIndex();
@@ -80,6 +101,10 @@ public class PushEntryRequest extends RequestOrResponse {
         }
     }
 
+    /**
+     * 发送得数据个数
+     * @return
+     */
     public int getCount() {
         return batchEntry.size();
     }
@@ -92,6 +117,9 @@ public class PushEntryRequest extends RequestOrResponse {
         return batchEntry;
     }
 
+    /**
+     * 清空批量数据
+     */
     public void clear() {
         batchEntry.clear();
         totalSize = 0;

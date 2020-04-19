@@ -1029,7 +1029,9 @@ public class DLedgerLeaderElector {
         takeLeadershipRequest.setRemoteId(request.getTransfereeId());
         takeLeadershipRequest.setTerm(request.getTerm());
         takeLeadershipRequest.setTakeLeadershipLedgerIndex(memberState.getLedgerEndIndex());
+        //转让节点    即leader
         takeLeadershipRequest.setTransferId(memberState.getSelfId());
+        //接受节点  即优选节点
         takeLeadershipRequest.setTransfereeId(request.getTransfereeId());
         if (memberState.currTerm() != request.getTerm()) {
             logger.warn("[HandleLeaderTransfer] term changed, cur={} , request={}", memberState.currTerm(), request.getTerm());

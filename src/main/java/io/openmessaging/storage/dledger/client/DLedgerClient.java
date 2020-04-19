@@ -164,6 +164,13 @@ public class DLedgerClient {
         }
     }
 
+    /**
+     * 主转换
+     * @param curLeaderId
+     * @param transfereeId
+     * @param term
+     * @return
+     */
     public LeadershipTransferResponse leadershipTransfer(String curLeaderId, String transfereeId, long term) {
 
         try {

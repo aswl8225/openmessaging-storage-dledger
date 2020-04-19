@@ -60,7 +60,7 @@ public class MemberState {
     private Map<String, Boolean> peersLiveTable = new ConcurrentHashMap<>();
 
     /**
-     * 优选节点
+     * 优选节点   当优选节点不为空  则表示已经开始主转让
      */
     private volatile String transferee;
     /**

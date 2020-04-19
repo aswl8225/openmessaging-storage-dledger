@@ -20,11 +20,11 @@ package io.openmessaging.storage.dledger.protocol;
 public class LeadershipTransferRequest extends RequestOrResponse {
 
     /**
-     * 请求节点
+     * 转让 leader
      */
     private String transferId;
     /**
-     * 优选节点
+     * 接收节点  优选节点
      */
     private String transfereeId;
     /**
