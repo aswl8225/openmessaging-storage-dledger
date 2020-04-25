@@ -710,7 +710,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             ledgerEndTerm = entry.getTerm();
             ledgerEndIndex = entry.getIndex();
             /**
-             * 修正index文件
+             * 根据data文件的startPosition处数据的index修正index文件的startPosition
              */
             reviseLedgerBeginIndex();
             /**
