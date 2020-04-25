@@ -518,7 +518,7 @@ public class DLedgerEntryPusher {
         private ConcurrentMap<Long, Long> pendingMap = new ConcurrentHashMap<>();
         /**
          * leader向follower批量推送后   等待响应得缓存集合
-         * ConcurrentMap<index, timestamp>
+         * ConcurrentMap<firstIndex, Pair<timestamp, count（批量数据的个数）>>
          */
         private ConcurrentMap<Long, Pair<Long, Integer>> batchPendingMap = new ConcurrentHashMap<>();
         private PushEntryRequest batchAppendEntryRequest = new PushEntryRequest();
@@ -959,6 +959,7 @@ public class DLedgerEntryPusher {
                     for (Map.Entry<Long, Pair<Long, Integer>> entry : batchPendingMap.entrySet()) {
                         /**
                          * 当前批次的数据  已经同步成功
+                         * firstIndex+count-1，即当前批量数据中最后一条数据对应的index
                          */
                         if (entry.getKey() + entry.getValue().getValue() - 1 <= peerWaterMark) {
                             batchPendingMap.remove(entry.getKey());

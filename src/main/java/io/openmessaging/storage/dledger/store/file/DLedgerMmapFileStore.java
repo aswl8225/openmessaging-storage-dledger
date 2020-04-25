@@ -483,7 +483,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
     }
 
     /**
-     * 根据data文件的startPosition修正index文件的startPosition
+     * 根据data文件的startPosition处数据的index修正index文件的startPosition
      */
     private void reviseLedgerBeginIndex() {
         //get ledger begin index
