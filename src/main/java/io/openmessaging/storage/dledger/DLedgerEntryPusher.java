@@ -1482,6 +1482,7 @@ public class DLedgerEntryPusher {
                 //Fall behind
                 /**
                  * 删除writeRequestMap中   小于等于endIndex的数据   并向leader应答
+                 * 即数据已经缓存到follower
                  */
                 if (index <= endIndex) {
                     try {
@@ -1554,7 +1555,7 @@ public class DLedgerEntryPusher {
             long minFastForwardIndex = Long.MAX_VALUE;
             for (Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair : writeRequestMap.values()) {
                 /**
-                 * 获取批量数据中第一条数据的index和最后一条数据的index
+                 * 获取每次append的批量数据中第一条数据的index和最后一条数据的index
                  */
                 long firstEntryIndex = pair.getKey().getFirstEntryIndex();
                 long lastEntryIndex = pair.getKey().getLastEntryIndex();
@@ -1688,7 +1689,7 @@ public class DLedgerEntryPusher {
                      */
                     long nextIndex = dLedgerStore.getLedgerEndIndex() + 1;
                     /**
-                     * 缓存中是否有nextIndex对应的数据
+                     * 缓存中是否有nextIndex对应的数据   并移除该数据
                      */
                     Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>> pair = writeRequestMap.remove(nextIndex);
                     /**
