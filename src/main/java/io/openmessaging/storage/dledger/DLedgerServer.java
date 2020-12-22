@@ -1,12 +1,11 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Copyright 2017-2020 the original author or authors.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,6 +20,7 @@ import io.openmessaging.storage.dledger.entry.DLedgerEntry;
 import io.openmessaging.storage.dledger.exception.DLedgerException;
 import io.openmessaging.storage.dledger.protocol.AppendEntryRequest;
 import io.openmessaging.storage.dledger.protocol.AppendEntryResponse;
+import io.openmessaging.storage.dledger.protocol.BatchAppendEntryRequest;
 import io.openmessaging.storage.dledger.protocol.DLedgerProtocolHander;
 import io.openmessaging.storage.dledger.protocol.DLedgerResponseCode;
 import io.openmessaging.storage.dledger.protocol.GetEntriesRequest;
@@ -45,6 +45,7 @@ import io.openmessaging.storage.dledger.utils.PreConditions;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -259,19 +260,44 @@ public class DLedgerServer implements DLedgerProtocolHander {
                 appendEntryResponse.setLeaderId(memberState.getSelfId());
                 return AppendFuture.newCompletedFuture(-1, appendEntryResponse);
             } else {
-                /**
-                 * 存储数据
-                 */
-                DLedgerEntry dLedgerEntry = new DLedgerEntry();
-                dLedgerEntry.setBody(request.getBody());
-                /**
-                 * leader写入data和index数据
-                 */
-                DLedgerEntry resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
-                /**
-                 * 等待集群中follower的ack
-                 */
-                return dLedgerEntryPusher.waitAck(resEntry);
+                if (request instanceof BatchAppendEntryRequest) {
+                    BatchAppendEntryRequest batchRequest = (BatchAppendEntryRequest) request;
+                    if (batchRequest.getBatchMsgs() != null && batchRequest.getBatchMsgs().size() != 0) {
+                        // record positions to return;
+                        long[] positions = new long[batchRequest.getBatchMsgs().size()];
+                        DLedgerEntry resEntry = null;
+                        // split bodys to append
+                        int index = 0;
+                        Iterator<byte[]> iterator = batchRequest.getBatchMsgs().iterator();
+                        while (iterator.hasNext()) {
+                            DLedgerEntry dLedgerEntry = new DLedgerEntry();
+                            dLedgerEntry.setBody(iterator.next());
+                            resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
+                            positions[index++] = resEntry.getPos();
+                        }
+                        // only wait last entry ack is ok
+                        BatchAppendFuture<AppendEntryResponse> batchAppendFuture =
+                                (BatchAppendFuture<AppendEntryResponse>) dLedgerEntryPusher.waitAck(resEntry, true);
+                        batchAppendFuture.setPositions(positions);
+                        return batchAppendFuture;
+                    }
+                    throw new DLedgerException(DLedgerResponseCode.REQUEST_WITH_EMPTY_BODYS, "BatchAppendEntryRequest" +
+                            " with empty bodys");
+                } else {
+                    /**
+                     * 存储数据
+                     */
+                    DLedgerEntry dLedgerEntry = new DLedgerEntry();
+                    dLedgerEntry.setBody(request.getBody());
+                    /**
+                     * leader写入data和index数据
+                     */
+                    DLedgerEntry resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
+                    /**
+                     * 等待集群中follower的ack
+                     */
+                    return dLedgerEntryPusher.waitAck(resEntry, false);
+                }
             }
         } catch (DLedgerException e) {
             logger.error("[{}][HandleAppend] failed", memberState.getSelfId(), e);

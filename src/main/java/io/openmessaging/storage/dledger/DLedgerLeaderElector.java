@@ -1,12 +1,11 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Copyright 2017-2020 the original author or authors.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -51,16 +50,16 @@ public class DLedgerLeaderElector {
     //as a server handler
     //record the last leader state
     //follower上次接受leader心跳的时间
-    private long lastLeaderHeartBeatTime = -1;
+    private volatile long lastLeaderHeartBeatTime = -1;
     //leader上次向follower发送心跳的时间
-    private long lastSendHeartBeatTime = -1;
+    private volatile long lastSendHeartBeatTime = -1;
     //leader上次获得超过半数follower回应心跳的时间
-    private long lastSuccHeartBeatTime = -1;
+    private volatile long lastSuccHeartBeatTime = -1;
     private int heartBeatTimeIntervalMs = 2000;
     private int maxHeartBeatLeak = 3;
     //as a client
     private long nextTimeToRequestVote = -1;
-    private boolean needIncreaseTermImmediately = false;
+    private volatile boolean needIncreaseTermImmediately = false;
     private int minVoteIntervalMs = 300;
     private int maxVoteIntervalMs = 1000;
 
@@ -320,6 +319,12 @@ public class DLedgerLeaderElector {
             /**
              * 请求中的选期小于当前的选期
              */
+            if (request.getLedgerEndTerm() < memberState.getLedgerEndTerm()) {
+                return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_EXPIRED_LEDGER_TERM));
+            } else if (request.getLedgerEndTerm() == memberState.getLedgerEndTerm() && request.getLedgerEndIndex() < memberState.getLedgerEndIndex()) {
+                return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_SMALL_LEDGER_END_INDEX));
+            }
+
             if (request.getTerm() < memberState.currTerm()) {
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_EXPIRED_VOTE_TERM));
             } else if (request.getTerm() == memberState.currTerm()) {
@@ -366,13 +371,6 @@ public class DLedgerLeaderElector {
                 needIncreaseTermImmediately = true;
                 //only can handleVote when the term is consistent
                 return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_TERM_NOT_READY));
-            }
-
-            //assert acceptedTerm is true
-            if (request.getLedgerEndTerm() < memberState.getLedgerEndTerm()) {
-                return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_EXPIRED_LEDGER_TERM));
-            } else if (request.getLedgerEndTerm() == memberState.getLedgerEndTerm() && request.getLedgerEndIndex() < memberState.getLedgerEndIndex()) {
-                return CompletableFuture.completedFuture(new VoteResponse(request).term(memberState.currTerm()).voteResult(VoteResponse.RESULT.REJECT_SMALL_LEDGER_END_INDEX));
             }
 
             if (request.getTerm() < memberState.getLedgerEndTerm()) {
@@ -691,7 +689,7 @@ public class DLedgerLeaderElector {
         /**
          * 当前时间 + 上次投票消耗时间 + （minVoteIntervalMs和maxVoteIntervalMs）之间的随机数
          */
-        return System.currentTimeMillis() + lastVoteCost + minVoteIntervalMs + random.nextInt(maxVoteIntervalMs - minVoteIntervalMs);
+        return System.currentTimeMillis() + minVoteIntervalMs + random.nextInt(maxVoteIntervalMs - minVoteIntervalMs);
     }
 
     /**
@@ -758,7 +756,7 @@ public class DLedgerLeaderElector {
          */
         final List<CompletableFuture<VoteResponse>> quorumVoteResponses = voteForQuorumResponses(term, ledgerEndTerm, ledgerEndIndex);
         //集群中最大的Term
-        final AtomicLong knownMaxTermInGroup = new AtomicLong(-1);
+        final AtomicLong knownMaxTermInGroup = new AtomicLong(term);
         //每次选举  有反馈的节点数
         final AtomicInteger allNum = new AtomicInteger(0);
         //合法的票数
@@ -858,14 +856,14 @@ public class DLedgerLeaderElector {
             });
 
         }
-        //for结束
+
         try {
             /**
              * 如果上面执行了voteLatch.countDown()   这里就直接结束
              *
              * 否则要等待3000 + random.nextInt(maxVoteIntervalMs)秒
              */
-            voteLatch.await(3000 + random.nextInt(maxVoteIntervalMs), TimeUnit.MILLISECONDS);
+            voteLatch.await(2000 + random.nextInt(maxVoteIntervalMs), TimeUnit.MILLISECONDS);
         } catch (Throwable ignore) {
 
         }
@@ -897,6 +895,9 @@ public class DLedgerLeaderElector {
              */
             parseResult = VoteResponse.ParseResult.WAIT_TO_REVOTE;
             nextTimeToRequestVote = getNextTimeToRequestVote();
+        } else if (!memberState.isQuorum(validNum.get() - biggerLedgerNum.get())) {
+            parseResult = VoteResponse.ParseResult.WAIT_TO_REVOTE;
+            nextTimeToRequestVote = getNextTimeToRequestVote() + maxVoteIntervalMs;
         } else if (memberState.isQuorum(acceptedNum.get())) {
             /**
              * 节点内同意席数达到法定席数
@@ -909,9 +910,6 @@ public class DLedgerLeaderElector {
              * 此处没有重新计算nextTimeToRequestVote  即再外层间隔10ms后   直接再次选举
              */
             parseResult = VoteResponse.ParseResult.REVOTE_IMMEDIATELY;
-        } else if (memberState.isQuorum(acceptedNum.get() + biggerLedgerNum.get())) {
-            parseResult = VoteResponse.ParseResult.WAIT_TO_REVOTE;
-            nextTimeToRequestVote = getNextTimeToRequestVote();
         } else {
             parseResult = VoteResponse.ParseResult.WAIT_TO_VOTE_NEXT;
             nextTimeToRequestVote = getNextTimeToRequestVote();
@@ -930,7 +928,6 @@ public class DLedgerLeaderElector {
              */
             changeRoleToLeader(term);
         }
-
     }
 
     /**
@@ -1043,7 +1040,8 @@ public class DLedgerLeaderElector {
          */
         return dLedgerRpcService.leadershipTransfer(takeLeadershipRequest).thenApply(response -> {
             synchronized (memberState) {
-                if (memberState.currTerm() == request.getTerm() && memberState.getTransferee() != null) {
+                if (response.getCode() != DLedgerResponseCode.SUCCESS.getCode() ||
+                    (memberState.currTerm() == request.getTerm() && memberState.getTransferee() != null)) {
                     logger.warn("leadershipTransfer failed, set transferee to null");
                     /**
                      * 关闭主装让标志
@@ -1228,5 +1226,4 @@ public class DLedgerLeaderElector {
         }
 
     }
-
 }

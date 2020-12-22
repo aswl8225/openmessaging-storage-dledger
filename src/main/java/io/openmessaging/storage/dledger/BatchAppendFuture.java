@@ -13,24 +13,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package io.openmessaging.storage.dledger;
 
-package io.openmessaging.storage.dledger.utils;
+public class BatchAppendFuture<T> extends AppendFuture<T> {
+    private long[] positions;
 
-public class Pair<K, V> {
+    public BatchAppendFuture() {
 
-    private K k;
-    private V v;
-
-    public Pair(K k, V v) {
-        this.k = k;
-        this.v = v;
     }
 
-    public K getKey() {
-        return k;
+    public BatchAppendFuture(long timeOutMs) {
+        super(timeOutMs);
     }
 
-    public V getValue() {
-        return v;
+    public long[] getPositions() {
+        return positions;
+    }
+
+    public void setPositions(long[] positions) {
+        this.positions = positions;
+    }
+
+    public static <T> BatchAppendFuture<T> newCompletedFuture(long pos, T value) {
+        BatchAppendFuture<T> future = new BatchAppendFuture<T>();
+        future.setPos(pos);
+        future.complete(value);
+        return future;
     }
 }

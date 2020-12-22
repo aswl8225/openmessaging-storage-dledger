@@ -14,23 +14,18 @@
  * limitations under the License.
  */
 
-package io.openmessaging.storage.dledger.utils;
+package io.openmessaging.storage.dledger.protocol;
 
-public class Pair<K, V> {
+import java.util.List;
 
-    private K k;
-    private V v;
+public class BatchAppendEntryRequest extends AppendEntryRequest {
+    private List<byte[]> batchMsgs;
 
-    public Pair(K k, V v) {
-        this.k = k;
-        this.v = v;
+    public List<byte[]> getBatchMsgs() {
+        return batchMsgs;
     }
 
-    public K getKey() {
-        return k;
-    }
-
-    public V getValue() {
-        return v;
+    public void setBatchMsgs(List<byte[]> batchMsgs) {
+        this.batchMsgs = batchMsgs;
     }
 }

@@ -1,12 +1,11 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Copyright 2017-2020 the original author or authors.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -70,9 +69,9 @@ public class DLedgerEntryPusher {
      **/
     private Map<Long, ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>>> pendingAppendResponsesByTerm = new ConcurrentHashMap<>();
 
-    private EntryHandler entryHandler = new EntryHandler(logger);
+    private EntryHandler entryHandler;
 
-    private QuorumAckChecker quorumAckChecker = new QuorumAckChecker(logger);
+    private QuorumAckChecker quorumAckChecker;
 
     private Map<String, EntryDispatcher> dispatcherMap = new HashMap<>();
 
@@ -91,6 +90,8 @@ public class DLedgerEntryPusher {
                 dispatcherMap.put(peer, new EntryDispatcher(peer, logger));
             }
         }
+        this.entryHandler = new EntryHandler(logger);
+        this.quorumAckChecker = new QuorumAckChecker(logger);
     }
 
     public void startup() {
@@ -210,7 +211,7 @@ public class DLedgerEntryPusher {
      * @param entry
      * @return
      */
-    public CompletableFuture<AppendEntryResponse> waitAck(DLedgerEntry entry) {
+    public CompletableFuture<AppendEntryResponse> waitAck(DLedgerEntry entry, boolean isBatchWait) {
         /**
          * 更新当前节点的peerWaterMarksByTerm
          */
@@ -225,13 +226,21 @@ public class DLedgerEntryPusher {
             response.setIndex(entry.getIndex());
             response.setTerm(entry.getTerm());
             response.setPos(entry.getPos());
+            if (isBatchWait) {
+                return BatchAppendFuture.newCompletedFuture(entry.getPos(), response);
+            }
             return AppendFuture.newCompletedFuture(entry.getPos(), response);
         } else {
             /**
              * 集群内有多个节点
              */
             checkTermForPendingMap(entry.getTerm(), "waitAck");
-            AppendFuture<AppendEntryResponse> future = new AppendFuture<>(dLedgerConfig.getMaxWaitAckTimeMs());
+            AppendFuture<AppendEntryResponse> future;
+            if (isBatchWait) {
+                future = new BatchAppendFuture<>(dLedgerConfig.getMaxWaitAckTimeMs());
+            } else {
+                future = new AppendFuture<>(dLedgerConfig.getMaxWaitAckTimeMs());
+            }
             future.setPos(entry.getPos());
             /**
              * 将term pos index  注入到pendingAppendResponsesByTerm   等待QuorumAckChecker得调度执行
@@ -263,7 +272,7 @@ public class DLedgerEntryPusher {
         private long lastQuorumIndex = -1;
 
         public QuorumAckChecker(Logger logger) {
-            super("QuorumAckChecker", logger);
+            super("QuorumAckChecker-" + memberState.getSelfId(), logger);
         }
 
         @Override
@@ -380,37 +389,35 @@ public class DLedgerEntryPusher {
                 ConcurrentMap<Long, TimeoutFuture<AppendEntryResponse>> responses = pendingAppendResponsesByTerm.get(currTerm);
                 boolean needCheck = false;
                 int ackNum = 0;
-                if (quorumIndex >= 0) {
-                    /**
-                     * 以quorumIndex为基准   从responses查找符合的值
-                     */
-                    for (Long i = quorumIndex; i >= 0; i--) {
-                        try {
-                            CompletableFuture<AppendEntryResponse> future = responses.remove(i);
-                            if (future == null) {
-                                /**
-                                 * 最后一次仲裁的日志序号不等于-1
-                                 * 并且最后一次不等于本次新仲裁的日志序号
-                                 * 最后一次仲裁的日志序号不等于最后一次仲裁的日志。正常情况一下，条件一、条件二通常为true，但这一条大概率会返回false。
-                                 */
-                                needCheck = lastQuorumIndex != -1 && lastQuorumIndex != quorumIndex && i != lastQuorumIndex;
-                                break;
-                            } else if (!future.isDone()) {
-                                /**
-                                 * 给客户端成功响应
-                                 */
-                                AppendEntryResponse response = new AppendEntryResponse();
-                                response.setGroup(memberState.getGroup());
-                                response.setTerm(currTerm);
-                                response.setIndex(i);
-                                response.setLeaderId(memberState.getSelfId());
-                                response.setPos(((AppendFuture) future).getPos());
-                                future.complete(response);
-                            }
-                            ackNum++;
-                        } catch (Throwable t) {
-                            logger.error("Error in ack to index={} term={}", i, currTerm, t);
+                /**
+                 * 以quorumIndex为基准   从responses查找符合的值
+                 */
+                for (Long i = quorumIndex; i > lastQuorumIndex; i--) {
+                    try {
+                        CompletableFuture<AppendEntryResponse> future = responses.remove(i);
+                        if (future == null) {
+                            /**
+                             * 最后一次仲裁的日志序号不等于-1
+                             * 并且最后一次不等于本次新仲裁的日志序号
+                             * 最后一次仲裁的日志序号不等于最后一次仲裁的日志。正常情况一下，条件一、条件二通常为true，但这一条大概率会返回false。
+                             */
+                            needCheck = true;
+                            break;
+                        } else if (!future.isDone()) {
+                            /**
+                             * 给客户端成功响应
+                             */
+                            AppendEntryResponse response = new AppendEntryResponse();
+                            response.setGroup(memberState.getGroup());
+                            response.setTerm(currTerm);
+                            response.setIndex(i);
+                            response.setLeaderId(memberState.getSelfId());
+                            response.setPos(((AppendFuture) future).getPos());
+                            future.complete(response);
                         }
+                        ackNum++;
+                    } catch (Throwable t) {
+                        logger.error("Error in ack to index={} term={}", i, currTerm, t);
                     }
                 }
 
@@ -606,10 +613,12 @@ public class DLedgerEntryPusher {
             }
             quota.sample(entry.getSize());
             if (quota.validateNow()) {
+                long leftNow = quota.leftNow();
+                logger.warn("[Push-{}]Quota exhaust, will sleep {}ms", peerId, leftNow);
                 /**
                  * sleep
                  */
-                DLedgerUtils.sleep(quota.leftNow());
+                DLedgerUtils.sleep(leftNow);
             }
         }
 
@@ -1238,7 +1247,7 @@ public class DLedgerEntryPusher {
         BlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>> compareOrTruncateRequests = new ArrayBlockingQueue<Pair<PushEntryRequest, CompletableFuture<PushEntryResponse>>>(100);
 
         public EntryHandler(Logger logger) {
-            super("EntryHandler", logger);
+            super("EntryHandler-" + memberState.getSelfId(), logger);
         }
 
         /**
